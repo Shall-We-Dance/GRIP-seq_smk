@@ -1,0 +1,49 @@
+# workflow/config.yaml
+genome: dm6   # must be one of: mm10, mm39, hg19, hg38, ce10, ce11, dm3, dm6
+
+threads:
+  fastp: 8
+  star: 16
+  samtools: 8
+
+# Reference & index (STAR)
+reference:
+  star_index: "/path/to/STAR/index"     # directory produced by STAR --runMode genomeGenerate
+  fasta: "/path/to/genome.fa"           # used for .fai (chrom sizes)
+  gtf: "/path/to/genes.gtf"             # optional, can be "" if not used
+
+# bowtie2 index location (kept for compatibility with your broader project)
+bowtie2:
+  index: "/path/to/bowtie2/index/prefix"
+
+# Blacklist (will be auto-downloaded and cached)
+blacklist:
+  cache_dir: "resources/blacklist"
+
+# Samples: multiple technical replicates (or lanes) under one sample
+samples:
+  sampleA:
+    R1:
+      - "raw/sampleA_L001_R1.fastq.gz"
+      - "raw/sampleA_L002_R1.fastq.gz"
+    R2:
+      - "raw/sampleA_L001_R2.fastq.gz"
+      - "raw/sampleA_L002_R2.fastq.gz"
+
+  sampleB:
+    R1:
+      - "raw/sampleB_R1.fastq.gz"
+    R2:
+      - "raw/sampleB_R2.fastq.gz"
+
+# STAR alignment settings
+star:
+  extra: ""  # optional additional args
+
+# Filtering
+filtering:
+  min_mapq: 11   # MAPQ > 10
+
+# Output naming
+output:
+  dir: "results"
