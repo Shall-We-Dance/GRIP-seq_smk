@@ -126,7 +126,6 @@ samples:
 Notes:
 
 * The workflow assumes paired-end reads and requires both R1 and R2 lists to be the same length per sample.
-* A Bowtie2 index path can also be specified in config for compatibility with broader projects, even though this workflow uses STAR.
 
 ## Running the workflow
 
@@ -134,12 +133,6 @@ From `workflow/`:
 
 ```bash
 snakemake --use-conda --cores 16
-```
-
-To run a subset (example: one sample):
-
-```bash
-snakemake --use-conda --cores 16 results/bigwig/sampleA/sampleA.R2firstbaseCPM.blacklist.bw
 ```
 
 Dry run:

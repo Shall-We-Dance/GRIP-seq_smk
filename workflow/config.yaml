@@ -12,10 +12,6 @@ reference:
   fasta: "/path/to/genome.fa"           # used for .fai (chrom sizes)
   gtf: "/path/to/genes.gtf"             # optional, can be "" if not used
 
-# bowtie2 index location (kept for compatibility with your broader project)
-bowtie2:
-  index: "/path/to/bowtie2/index/prefix"
-
 # Blacklist (will be auto-downloaded and cached)
 blacklist:
   cache_dir: "resources/blacklist"
