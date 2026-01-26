@@ -92,5 +92,5 @@ rule multiqc:
     shell:
         r"""
         mkdir -p $(dirname {output.html}) $(dirname {log})
-        multiqc -o {OUTDIR}/qc/multiqc {OUTDIR} > {log} 2>&1
+        multiqc --force -o {OUTDIR}/qc/multiqc {OUTDIR} > {log} 2>&1
         """
