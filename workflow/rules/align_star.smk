@@ -46,7 +46,6 @@ rule star_align_unique:
         # {OUTDIR}/tmp/star/sample/sample.Aligned.sortedByCoord.out.bam
         # {OUTDIR}/tmp/star/sample/sample.Log.final.out
         # {OUTDIR}/tmp/star/sample/sample.SJ.out.tab
-        mv {OUTDIR}/tmp/star/{wildcards.sample}/{wildcards.sample}.Aligned.sortedByCoord.out.bam {output.bam}
         cp {OUTDIR}/tmp/star/{wildcards.sample}/{wildcards.sample}.Log.final.out {output.log_final}
         cp {OUTDIR}/tmp/star/{wildcards.sample}/{wildcards.sample}.SJ.out.tab {output.sj}
         """

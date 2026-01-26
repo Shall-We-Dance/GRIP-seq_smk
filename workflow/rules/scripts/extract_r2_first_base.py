@@ -1,5 +1,8 @@
 # workflow/scripts/extract_r2_first_base.py
 import argparse
+import os
+import sys
+from types import SimpleNamespace
 import pysam
 import pyBigWig
 
@@ -46,7 +49,7 @@ def load_blacklist(bed_path):
 
     return is_blacklisted
 
-def main():
+def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bam", required=True)
     ap.add_argument("--fai", required=True)
@@ -54,7 +57,30 @@ def main():
     ap.add_argument("--min-mapq", type=int, default=11)
     ap.add_argument("--blacklist-bed", default=None)
     ap.add_argument("--require-proper-pair", action="store_true")
-    args = ap.parse_args()
+    return ap.parse_args()
+
+def resolve_args():
+    if "snakemake" not in globals():
+        return parse_args(), None
+
+    log_path = snakemake.log[0] if snakemake.log else None
+    args = SimpleNamespace(
+        bam=snakemake.input.bam,
+        fai=snakemake.input.fai,
+        out_bw=snakemake.output.bw,
+        min_mapq=int(snakemake.params.min_mapq),
+        blacklist_bed=snakemake.input.get("bl"),
+        require_proper_pair=snakemake.params.get("require_proper_pair", False),
+    )
+    return args, log_path
+
+def main():
+    args, log_path = resolve_args()
+    if log_path:
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        log_fh = open(log_path, "w")
+        sys.stdout = log_fh
+        sys.stderr = log_fh
 
     chroms = load_fai(args.fai)
     chrom_len = {c: L for c, L in chroms}
@@ -82,6 +108,8 @@ def main():
             continue
 
         chrom = bam.get_reference_name(r.reference_id)
+        if chrom not in counts:
+            continue
 
         # "first base pair" of Read2 in sequencing orientation:
         # if aligned forward, first base is reference_start
@@ -108,6 +136,7 @@ def main():
 
     scale = 1e6 / n_read2
 
+    os.makedirs(os.path.dirname(args.out_bw), exist_ok=True)
     bw = pyBigWig.open(args.out_bw, "w")
     bw.addHeader(chroms)
 
@@ -123,6 +152,8 @@ def main():
         bw.addEntries([chrom] * len(starts), starts, ends=ends, values=values)
 
     bw.close()
+    if log_path:
+        log_fh.close()
 
 if __name__ == "__main__":
     main()

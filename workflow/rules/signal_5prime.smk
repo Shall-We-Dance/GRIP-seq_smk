@@ -69,16 +69,8 @@ rule r2_first_base_cpm_noblacklist:
         "envs/py_signal.yaml"
     params:
         min_mapq=int(config["filtering"]["min_mapq"])
-    shell:
-        r"""
-        mkdir -p $(dirname {output.bw}) $(dirname {log})
-        python scripts/extract_r2_first_base.py \
-          --bam {input.bam} \
-          --fai {input.fai} \
-          --out-bw {output.bw} \
-          --min-mapq {params.min_mapq} \
-          > {log} 2>&1
-        """
+    script:
+        "scripts/extract_r2_first_base.py"
 
 rule r2_first_base_cpm_blacklist:
     input:
@@ -94,14 +86,5 @@ rule r2_first_base_cpm_blacklist:
         "envs/py_signal.yaml"
     params:
         min_mapq=int(config["filtering"]["min_mapq"])
-    shell:
-        r"""
-        mkdir -p $(dirname {output.bw}) $(dirname {log})
-        python scripts/extract_r2_first_base.py \
-          --bam {input.bam} \
-          --fai {input.fai} \
-          --out-bw {output.bw} \
-          --min-mapq {params.min_mapq} \
-          --blacklist-bed {input.bl} \
-          > {log} 2>&1
-        """
+    script:
+        "scripts/extract_r2_first_base.py"
