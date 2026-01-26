@@ -32,6 +32,23 @@ samples:
     R2:
       - "raw/sampleB_R2.fastq.gz"
 
+# fastp settings
+fastp:
+
+  # Step1: QC + Illumina adapter trimming + dedup
+  dedup_adapter:
+    enable: true
+    dedup: true
+
+  # Step2: GRIP-seq custom trimming
+  grip_trim:
+    enable: true
+    disable_adapter_trimming: true   # -A
+    trim_front_r1: 12                # -f
+    trim_tail_r1: 10                 # -t
+    trim_front_r2: 10                # -F
+    trim_tail_r2: 12                 # -T
+
 # STAR alignment settings
 star:
   extra: ""  # optional additional args
