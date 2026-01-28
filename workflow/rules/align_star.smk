@@ -10,6 +10,7 @@ rule star_align_unique:
     output:
         bam=temp(f"{OUTDIR}/tmp/star/{{sample}}/{{sample}}.Aligned.sortedByCoord.out.bam"),
         log_final=f"{OUTDIR}/star/{{sample}}/{{sample}}.Log.final.out",
+        log_final_qc=f"{OUTDIR}/qc/star/{{sample}}/{{sample}}.Log.final.out",
         sj=f"{OUTDIR}/star/{{sample}}/{{sample}}.SJ.out.tab"
     log:
         f"logs/star/{{sample}}.log"
@@ -29,16 +30,6 @@ rule star_align_unique:
           --readFilesCommand zcat \
           --outFileNamePrefix {OUTDIR}/tmp/star/{wildcards.sample}/{wildcards.sample}. \
           --outSAMtype BAM SortedByCoordinate \
-          --outSAMattributes NH HI AS nM MD \
-          --outFilterType BySJout \
-          --outFilterMultimapNmax 1 \
-          --outSAMmultNmax 1 \
-          --winAnchorMultimapNmax 1 \
-          --outFilterMismatchNoverLmax 0.04 \
-          --alignSJDBoverhangMin 1 \
-          --alignIntronMin 20 \
-          --alignIntronMax 1000000 \
-          --alignMatesGapMax 1000000 \
           {params.extra} \
           > {log} 2>&1
 
@@ -47,5 +38,6 @@ rule star_align_unique:
         # {OUTDIR}/tmp/star/sample/sample.Log.final.out
         # {OUTDIR}/tmp/star/sample/sample.SJ.out.tab
         cp {OUTDIR}/tmp/star/{wildcards.sample}/{wildcards.sample}.Log.final.out {output.log_final}
+        cp {OUTDIR}/tmp/star/{wildcards.sample}/{wildcards.sample}.Log.final.out {output.log_final_qc}
         cp {OUTDIR}/tmp/star/{wildcards.sample}/{wildcards.sample}.SJ.out.tab {output.sj}
         """

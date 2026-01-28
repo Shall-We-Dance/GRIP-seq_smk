@@ -13,11 +13,16 @@ include: "rules/bam_post.smk"
 include: "rules/signal_5prime.smk"
 include: "rules/tracks.smk"
 
+FINAL_5P_BW_BLACKLIST = expand(
+    f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.R2firstbaseCPM.blacklist.bw",
+    sample=SAMPLES
+)
+
 rule all:
     input:
         # QC
-        expand(f"{OUTDIR}/qc/fastp/{{sample}}/fastp.html", sample=SAMPLES),
-        expand(f"{OUTDIR}/qc/fastp/{{sample}}/fastp.json", sample=SAMPLES),
+        expand(f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.html", sample=SAMPLES),
+        expand(f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.json", sample=SAMPLES),
         f"{OUTDIR}/qc/multiqc/multiqc_report.html",
 
         # Alignment (final BAM kept)
@@ -30,7 +35,23 @@ rule all:
 
         # 5' end signal BigWig (Read2 first base, 1bp), with/without blacklist
         expand(f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.R2firstbaseCPM.noblacklist.bw", sample=SAMPLES),
-        expand(f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.R2firstbaseCPM.blacklist.bw", sample=SAMPLES),
+        FINAL_5P_BW_BLACKLIST,
 
         # Track files
         expand(f"{OUTDIR}/tracks/{{sample}}/{{sample}}.tracks.txt", sample=SAMPLES),
+
+        # Cleanup sentinel
+        f"{OUTDIR}/.tmp_cleanup.done"
+
+
+rule cleanup_tmp:
+    input:
+        FINAL_5P_BW_BLACKLIST
+    output:
+        touch(f"{OUTDIR}/.tmp_cleanup.done")
+    shell:
+        r"""
+        set -euo pipefail
+        echo "[cleanup] Removing temporary directory: {OUTDIR}/tmp"
+        rm -rf {OUTDIR}/tmp
+        """

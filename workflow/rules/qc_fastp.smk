@@ -22,26 +22,26 @@ rule fastp_unit:
     output:
         clean_r1=temp(f"{OUTDIR}/tmp/fastp/{{sample}}/unit{{unit}}_R1.fastq.gz"),
         clean_r2=temp(f"{OUTDIR}/tmp/fastp/{{sample}}/unit{{unit}}_R2.fastq.gz"),
-        html=f"{OUTDIR}/qc/fastp/{{sample}}/unit{{unit}}.html",
-        json=f"{OUTDIR}/qc/fastp/{{sample}}/unit{{unit}}.json"
+        html_step1=f"{OUTDIR}/qc/fastp/{{sample}}/unit{{unit}}_step1.html",
+        json_step1=f"{OUTDIR}/qc/fastp/{{sample}}/unit{{unit}}_step1.json",
+        html_step2=f"{OUTDIR}/qc/fastp/{{sample}}/unit{{unit}}_step2.html",
+        json_step2=f"{OUTDIR}/qc/fastp/{{sample}}/unit{{unit}}_step2.json"
     log:
         f"logs/fastp/{{sample}}/unit{{unit}}.log"
     threads: int(config["threads"]["fastp"])
     conda:
         "envs/qc.yaml"
     params:
-        # Step1: dedup (default True unless disabled in config)
-        dedup=bool(config.get("fastp", {}).get("dedup_adapter", {}).get("dedup", True)),
-        # Step2: GRIP-seq fixed trimming (defaults from your legacy script)
+        dedup_arg=("--dedup" if bool(config.get("fastp", {}).get("dedup_adapter", {}).get("dedup", True)) else ""),
+        disable_adapter_arg=("--disable_adapter_trimming" if bool(config.get("fastp", {}).get("grip_trim", {}).get("disable_adapter_trimming", True)) else ""),
         trim_f=int(config.get("fastp", {}).get("grip_trim", {}).get("trim_front_r1", 12)),
         trim_t=int(config.get("fastp", {}).get("grip_trim", {}).get("trim_tail_r1", 10)),
         trim_F=int(config.get("fastp", {}).get("grip_trim", {}).get("trim_front_r2", 10)),
         trim_T=int(config.get("fastp", {}).get("grip_trim", {}).get("trim_tail_r2", 12)),
-        disable_adapter_trimming=bool(config.get("fastp", {}).get("grip_trim", {}).get("disable_adapter_trimming", True)),
     shell:
         r"""
         set -euo pipefail
-        mkdir -p $(dirname {output.clean_r1}) $(dirname {output.html}) $(dirname {log})
+        mkdir -p $(dirname {output.clean_r1}) $(dirname {output.html_step1}) $(dirname {log})
 
         TMP_R1={OUTDIR}/tmp/fastp/{wildcards.sample}/unit{wildcards.unit}.step1_R1.fastq.gz
         TMP_R2={OUTDIR}/tmp/fastp/{wildcards.sample}/unit{wildcards.unit}.step1_R2.fastq.gz
@@ -51,7 +51,8 @@ rule fastp_unit:
           -i {input.r1} -I {input.r2} \
           -o $TMP_R1 -O $TMP_R2 \
           --thread {threads} \
-          {("--dedup" if params.dedup else "")} \
+          {params.dedup_arg} \
+          --html {output.html_step1} --json {output.json_step1} \
           >> {log} 2>&1
 
         # Step 2: GRIP-seq custom trimming (disable adapter trimming + fixed trims)
@@ -59,10 +60,10 @@ rule fastp_unit:
           -i $TMP_R1 -I $TMP_R2 \
           -o {output.clean_r1} -O {output.clean_r2} \
           --thread {threads} \
-          {("--disable_adapter_trimming" if params.disable_adapter_trimming else "")} \
+          {params.disable_adapter_arg} \
           -f {params.trim_f} -t {params.trim_t} \
           -F {params.trim_F} -T {params.trim_T} \
-          --html {output.html} --json {output.json} \
+          --html {output.html_step2} --json {output.json_step2} \
           >> {log} 2>&1
         """
 
@@ -75,8 +76,8 @@ rule merge_fastq_after_fastp:
         r1=lambda wc: [f"{OUTDIR}/tmp/fastp/{wc.sample}/unit{i}_R1.fastq.gz" for i in units(wc.sample)],
         r2=lambda wc: [f"{OUTDIR}/tmp/fastp/{wc.sample}/unit{i}_R2.fastq.gz" for i in units(wc.sample)],
         # Ensure per-lane reports exist before merging (optional but helpful for DAG clarity)
-        html=lambda wc: [f"{OUTDIR}/qc/fastp/{wc.sample}/unit{i}.html" for i in units(wc.sample)],
-        json=lambda wc: [f"{OUTDIR}/qc/fastp/{wc.sample}/unit{i}.json" for i in units(wc.sample)],
+        html=lambda wc: [f"{OUTDIR}/qc/fastp/{wc.sample}/unit{i}_step2.html" for i in units(wc.sample)],
+        json=lambda wc: [f"{OUTDIR}/qc/fastp/{wc.sample}/unit{i}_step2.json" for i in units(wc.sample)],
     output:
         merged_r1=temp(f"{OUTDIR}/tmp/merged_fastq/{{sample}}_R1.fastq.gz"),
         merged_r2=temp(f"{OUTDIR}/tmp/merged_fastq/{{sample}}_R2.fastq.gz")
@@ -100,8 +101,8 @@ rule fastp_sample_report_only:
         r1=f"{OUTDIR}/tmp/merged_fastq/{{sample}}_R1.fastq.gz",
         r2=f"{OUTDIR}/tmp/merged_fastq/{{sample}}_R2.fastq.gz"
     output:
-        html=f"{OUTDIR}/qc/fastp/{{sample}}/fastp.html",
-        json=f"{OUTDIR}/qc/fastp/{{sample}}/fastp.json",
+        html=f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.html",
+        json=f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.json",
         out_r1=temp(f"{OUTDIR}/tmp/fastp_sample/{{sample}}_R1.fastq.gz"),
         out_r2=temp(f"{OUTDIR}/tmp/fastp_sample/{{sample}}_R2.fastq.gz"),
     log:
@@ -133,7 +134,7 @@ rule fastp_sample_report_only:
 # ----------------------------
 rule multiqc:
     input:
-        expand(f"{OUTDIR}/qc/fastp/{{sample}}/fastp.html", sample=list(config["samples"].keys()))
+        expand(f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.html", sample=list(config["samples"].keys()))
     output:
         html=f"{OUTDIR}/qc/multiqc/multiqc_report.html"
     log:
