@@ -26,7 +26,7 @@ rule star_align_unique:
         STAR \
           --runThreadN {threads} \
           --genomeDir {params.index} \
-          --readFilesIn {input.r1} {input.r2} \
+          --readFilesIn {input.r2} \
           --readFilesCommand zcat \
           --outFileNamePrefix {OUTDIR}/tmp/star/{wildcards.sample}/{wildcards.sample}. \
           --outSAMtype BAM SortedByCoordinate \

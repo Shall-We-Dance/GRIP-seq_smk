@@ -134,7 +134,8 @@ rule fastp_sample_report_only:
 # ----------------------------
 rule multiqc:
     input:
-        expand(f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.html", sample=list(config["samples"].keys()))
+        expand(f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.html", sample=list(config["samples"].keys())),
+        expand(f"{OUTDIR}/qc/star/{{sample}}/{{sample}}.Log.final.out", sample=list(config["samples"].keys()))
     output:
         html=f"{OUTDIR}/qc/multiqc/multiqc_report.html"
     log:
