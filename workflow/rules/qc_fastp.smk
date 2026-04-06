@@ -3,31 +3,49 @@ import os
 
 OUTDIR = config["output"]["dir"]
 
+
 def units(sample):
     return list(range(len(config["samples"][sample]["R1"])))
 
 
 # ----------------------------
-# Per-lane (unit) fastp
+# Merge raw FASTQ per sample (before fastp)
+# ----------------------------
+rule merge_raw_fastq_per_sample:
+    input:
+        r1=lambda wc: [config["samples"][wc.sample]["R1"][i] for i in units(wc.sample)],
+        r2=lambda wc: [config["samples"][wc.sample]["R2"][i] for i in units(wc.sample)]
+    output:
+        merged_r1=temp(f"{OUTDIR}/tmp/merged_raw/{{sample}}_R1.fastq.gz"),
+        merged_r2=temp(f"{OUTDIR}/tmp/merged_raw/{{sample}}_R2.fastq.gz")
+    threads: 2
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p $(dirname {output.merged_r1})
+        cat {input.r1} > {output.merged_r1}
+        cat {input.r2} > {output.merged_r2}
+        """
+
+
+# ----------------------------
+# Sample-level fastp (two-step, keep GRIP-seq custom trimming)
 #   Step1: QC + Illumina adapter trimming + dedup
 #   Step2: GRIP-seq custom trimming (fixed trims; disable adapter trimming)
-# Outputs:
-#   - cleaned FASTQ (temp) for merge
-#   - final per-lane fastp HTML/JSON (kept; corresponds to trimmed reads used downstream)
 # ----------------------------
-rule fastp_unit:
+rule fastp_sample_level:
     input:
-        r1=lambda wc: config["samples"][wc.sample]["R1"][int(wc.unit)],
-        r2=lambda wc: config["samples"][wc.sample]["R2"][int(wc.unit)]
+        r1=f"{OUTDIR}/tmp/merged_raw/{{sample}}_R1.fastq.gz",
+        r2=f"{OUTDIR}/tmp/merged_raw/{{sample}}_R2.fastq.gz"
     output:
-        clean_r1=temp(f"{OUTDIR}/tmp/fastp/{{sample}}/unit{{unit}}_R1.fastq.gz"),
-        clean_r2=temp(f"{OUTDIR}/tmp/fastp/{{sample}}/unit{{unit}}_R2.fastq.gz"),
-        html_step1=f"{OUTDIR}/qc/fastp/{{sample}}/unit{{unit}}_step1.html",
-        json_step1=f"{OUTDIR}/qc/fastp/{{sample}}/unit{{unit}}_step1.json",
-        html_step2=f"{OUTDIR}/qc/fastp/{{sample}}/unit{{unit}}_step2.html",
-        json_step2=f"{OUTDIR}/qc/fastp/{{sample}}/unit{{unit}}_step2.json"
+        clean_r1=temp(f"{OUTDIR}/tmp/fastp_sample/{{sample}}_R1.fastq.gz"),
+        clean_r2=temp(f"{OUTDIR}/tmp/fastp_sample/{{sample}}_R2.fastq.gz"),
+        html_step1=f"{OUTDIR}/qc/fastp/{{sample}}/merged_step1.html",
+        json_step1=f"{OUTDIR}/qc/fastp/{{sample}}/merged_step1.json",
+        html_step2=f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.html",
+        json_step2=f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.json"
     log:
-        f"logs/fastp/{{sample}}/unit{{unit}}.log"
+        f"logs/fastp/{{sample}}.log"
     threads: int(config["threads"]["fastp"])
     conda:
         "envs/qc.yaml"
@@ -43,8 +61,8 @@ rule fastp_unit:
         set -euo pipefail
         mkdir -p $(dirname {output.clean_r1}) $(dirname {output.html_step1}) $(dirname {log})
 
-        TMP_R1={OUTDIR}/tmp/fastp/{wildcards.sample}/unit{wildcards.unit}.step1_R1.fastq.gz
-        TMP_R2={OUTDIR}/tmp/fastp/{wildcards.sample}/unit{wildcards.unit}.step1_R2.fastq.gz
+        TMP_R1={OUTDIR}/tmp/fastp_sample/{wildcards.sample}.step1_R1.fastq.gz
+        TMP_R2={OUTDIR}/tmp/fastp_sample/{wildcards.sample}.step1_R2.fastq.gz
 
         # Step 1: QC + Illumina adapter trimming + dedup
         fastp \
@@ -53,7 +71,7 @@ rule fastp_unit:
           --thread {threads} \
           {params.dedup_arg} \
           --html {output.html_step1} --json {output.json_step1} \
-          >> {log} 2>&1
+          > {log} 2>&1
 
         # Step 2: GRIP-seq custom trimming (disable adapter trimming + fixed trims)
         fastp \
@@ -69,73 +87,40 @@ rule fastp_unit:
 
 
 # ----------------------------
-# Merge post-fastp per sample (after per-lane processing)
+# seqkit stats for raw and clean reads
 # ----------------------------
-rule merge_fastq_after_fastp:
+rule seqkit_stats_sample_level:
     input:
-        r1=lambda wc: [f"{OUTDIR}/tmp/fastp/{wc.sample}/unit{i}_R1.fastq.gz" for i in units(wc.sample)],
-        r2=lambda wc: [f"{OUTDIR}/tmp/fastp/{wc.sample}/unit{i}_R2.fastq.gz" for i in units(wc.sample)],
-        # Ensure per-lane reports exist before merging (optional but helpful for DAG clarity)
-        html=lambda wc: [f"{OUTDIR}/qc/fastp/{wc.sample}/unit{i}_step2.html" for i in units(wc.sample)],
-        json=lambda wc: [f"{OUTDIR}/qc/fastp/{wc.sample}/unit{i}_step2.json" for i in units(wc.sample)],
+        raw_r1=f"{OUTDIR}/tmp/merged_raw/{{sample}}_R1.fastq.gz",
+        raw_r2=f"{OUTDIR}/tmp/merged_raw/{{sample}}_R2.fastq.gz",
+        clean_r1=f"{OUTDIR}/tmp/fastp_sample/{{sample}}_R1.fastq.gz",
+        clean_r2=f"{OUTDIR}/tmp/fastp_sample/{{sample}}_R2.fastq.gz"
     output:
-        merged_r1=temp(f"{OUTDIR}/tmp/merged_fastq/{{sample}}_R1.fastq.gz"),
-        merged_r2=temp(f"{OUTDIR}/tmp/merged_fastq/{{sample}}_R2.fastq.gz")
-    threads: 2
-    shell:
-        r"""
-        set -euo pipefail
-        mkdir -p $(dirname {output.merged_r1})
-        cat {input.r1} > {output.merged_r1}
-        cat {input.r2} > {output.merged_r2}
-        """
-
-
-# ----------------------------
-# Sample-level fastp report-only (do not modify reads)
-#   Uses merged FASTQs, generates sample-level HTML/JSON.
-#   Output FASTQs are temp and not kept.
-# ----------------------------
-rule fastp_sample_report_only:
-    input:
-        r1=f"{OUTDIR}/tmp/merged_fastq/{{sample}}_R1.fastq.gz",
-        r2=f"{OUTDIR}/tmp/merged_fastq/{{sample}}_R2.fastq.gz"
-    output:
-        html=f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.html",
-        json=f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.json",
-        out_r1=temp(f"{OUTDIR}/tmp/fastp_sample/{{sample}}_R1.fastq.gz"),
-        out_r2=temp(f"{OUTDIR}/tmp/fastp_sample/{{sample}}_R2.fastq.gz"),
+        raw_stats=f"{OUTDIR}/qc/seqkit/{{sample}}/raw.seqkit.stats.tsv",
+        clean_stats=f"{OUTDIR}/qc/seqkit/{{sample}}/clean.seqkit.stats.tsv"
     log:
-        f"logs/fastp/{{sample}}/sample_report_only.log"
-    threads: 2
+        f"logs/seqkit/{{sample}}.log"
     conda:
         "envs/qc.yaml"
     shell:
         r"""
         set -euo pipefail
-        mkdir -p $(dirname {output.html}) $(dirname {output.out_r1}) $(dirname {log})
+        mkdir -p $(dirname {output.raw_stats}) $(dirname {log})
 
-        fastp \
-          -i {input.r1} -I {input.r2} \
-          -o {output.out_r1} -O {output.out_r2} \
-          --disable_adapter_trimming \
-          --disable_quality_filtering \
-          --disable_length_filtering \
-          --html {output.html} --json {output.json} \
-          --thread {threads} \
-          > {log} 2>&1
+        seqkit stats -a -T {input.raw_r1} {input.raw_r2} > {output.raw_stats} 2> {log}
+        seqkit stats -a -T {input.clean_r1} {input.clean_r2} > {output.clean_stats} 2>> {log}
         """
 
 
 # ----------------------------
 # MultiQC summary
-#   Use --force to avoid _1 suffix when outputs already exist.
-#   Limit scanning scope to QC + STAR outputs for performance/stability.
 # ----------------------------
 rule multiqc:
     input:
         expand(f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.html", sample=list(config["samples"].keys())),
-        expand(f"{OUTDIR}/qc/star/{{sample}}/{{sample}}.Log.final.out", sample=list(config["samples"].keys()))
+        expand(f"{OUTDIR}/qc/star/{{sample}}/{{sample}}.Log.final.out", sample=list(config["samples"].keys())),
+        expand(f"{OUTDIR}/qc/seqkit/{{sample}}/raw.seqkit.stats.tsv", sample=list(config["samples"].keys())),
+        expand(f"{OUTDIR}/qc/seqkit/{{sample}}/clean.seqkit.stats.tsv", sample=list(config["samples"].keys()))
     output:
         html=f"{OUTDIR}/qc/multiqc/multiqc_report.html"
     log:
