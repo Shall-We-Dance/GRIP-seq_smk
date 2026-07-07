@@ -13,10 +13,12 @@ include: "rules/bam_post.smk"
 include: "rules/signal_5prime.smk"
 include: "rules/tracks.smk"
 
-FINAL_5P_BW_BLACKLIST = expand(
-    f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.R2firstbaseCPM.blacklist.bw",
-    sample=SAMPLES
-)
+BIGWIG_TARGETS = []
+BIGWIG_TARGETS += expand(f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.bamCPM.noblacklist.bw", sample=SAMPLES)
+BIGWIG_TARGETS += expand(f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.R2firstbaseCPM.noblacklist.bw", sample=SAMPLES)
+if FILTER_BLACKLIST:
+    BIGWIG_TARGETS += expand(f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.bamCPM.blacklist.bw", sample=SAMPLES)
+    BIGWIG_TARGETS += expand(f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.R2firstbaseCPM.blacklist.bw", sample=SAMPLES)
 
 rule all:
     input:
@@ -29,13 +31,8 @@ rule all:
         expand(f"{OUTDIR}/star/{{sample}}/{{sample}}.unique.mapq11.sorted.bam", sample=SAMPLES),
         expand(f"{OUTDIR}/star/{{sample}}/{{sample}}.unique.mapq11.sorted.bam.bai", sample=SAMPLES),
 
-        # BigWig from BAM (coverage, CPM), with/without blacklist
-        expand(f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.bamCPM.noblacklist.bw", sample=SAMPLES),
-        expand(f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.bamCPM.blacklist.bw", sample=SAMPLES),
-
-        # 5' end signal BigWig (Read2 first base, 1bp), with/without blacklist
-        expand(f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.R2firstbaseCPM.noblacklist.bw", sample=SAMPLES),
-        FINAL_5P_BW_BLACKLIST,
+        # BigWig from BAM and 5' end signal; blacklist tracks are optional.
+        BIGWIG_TARGETS,
 
         # Track files
         expand(f"{OUTDIR}/tracks/{{sample}}/{{sample}}.tracks.txt", sample=SAMPLES),
@@ -46,7 +43,7 @@ rule all:
 
 rule cleanup_tmp:
     input:
-        FINAL_5P_BW_BLACKLIST
+        BIGWIG_TARGETS
     output:
         touch(f"{OUTDIR}/.tmp_cleanup.done")
     shell:

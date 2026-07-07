@@ -4,12 +4,21 @@ import os
 sample = snakemake.wildcards.sample
 out_txt = snakemake.output.txt
 
-bw_paths = [
-    ("BAM CPM (no blacklist)", snakemake.input.bw1),
-    ("BAM CPM (blacklist)", snakemake.input.bw2),
-    ("R2 first-base CPM (no blacklist)", snakemake.input.bw3),
-    ("R2 first-base CPM (blacklist)", snakemake.input.bw4),
-]
+def add_track(tracks, name, path):
+    if not path:
+        return
+    if isinstance(path, (list, tuple)):
+        if not path:
+            return
+        path = path[0]
+    tracks.append((name, str(path)))
+
+
+bw_paths = []
+add_track(bw_paths, "BAM CPM (no blacklist)", snakemake.input.get("bw1"))
+add_track(bw_paths, "BAM CPM (blacklist)", snakemake.input.get("bw2"))
+add_track(bw_paths, "R2 first-base CPM (no blacklist)", snakemake.input.get("bw3"))
+add_track(bw_paths, "R2 first-base CPM (blacklist)", snakemake.input.get("bw4"))
 
 os.makedirs(os.path.dirname(out_txt), exist_ok=True)
 

@@ -1,6 +1,6 @@
 # GRIP-seq Snakemake Analysis Pipeline
 
-This repository provides a reproducible Snakemake workflow for **GRIP-seq** paired-end sequencing data. The pipeline performs per-lane QC with fastp, generates MultiQC summaries, aligns reads to a reference genome with STAR while retaining only uniquely mapped reads, and produces genome-browser-ready tracks including a **GRIP-seq 5′ end signal** derived from **Read 2 first base** (1 bp, strand-agnostic) with CPM normalization. BigWig tracks are generated both **with** and **without** blacklist filtering.
+This repository provides a reproducible Snakemake workflow for **GRIP-seq** paired-end sequencing data. The pipeline merges sample FASTQs, performs sample-level QC and trimming with fastp, generates MultiQC summaries, aligns reads to a reference genome with STAR while retaining only uniquely mapped reads, and produces genome-browser-ready tracks including a **GRIP-seq 5′ end signal** derived from **Read 2 first base** (1 bp, strand-agnostic) with CPM normalization. Optional blacklist-filtered BigWig tracks can be generated from a manually provided BED file or URL.
 
 ## Overview
 
@@ -10,8 +10,8 @@ This repository provides a reproducible Snakemake workflow for **GRIP-seq** pair
 
 ### Outputs (per sample)
 - **QC**
-  - `results/qc/fastp/<sample>/unit<k>.html/json` (per-lane)
-  - `results/qc/fastp/<sample>/fastp.html/json` (per-sample; computed after merge)
+  - `results/qc/fastp/<sample>/merged_step1.html/json`
+  - `results/qc/fastp/<sample>/merged_fastp_final.html/json`
   - `results/qc/multiqc/multiqc_report.html`
 - **Alignment**
   - `results/star/<sample>/<sample>.unique.mapq11.sorted.bam`
@@ -19,10 +19,10 @@ This repository provides a reproducible Snakemake workflow for **GRIP-seq** pair
 - **Signal tracks (BigWig, CPM normalized)**
   - BAM coverage:
     - `results/bigwig/<sample>/<sample>.bamCPM.noblacklist.bw`
-    - `results/bigwig/<sample>/<sample>.bamCPM.blacklist.bw`
+    - `results/bigwig/<sample>/<sample>.bamCPM.blacklist.bw` (if `filter_blacklist: true`)
   - GRIP-seq 5′ end signal (Read2 first base, 1 bp):
     - `results/bigwig/<sample>/<sample>.R2firstbaseCPM.noblacklist.bw`
-    - `results/bigwig/<sample>/<sample>.R2firstbaseCPM.blacklist.bw`
+    - `results/bigwig/<sample>/<sample>.R2firstbaseCPM.blacklist.bw` (if `filter_blacklist: true`)
 - **Genome browser track file**
   - `results/tracks/<sample>/<sample>.tracks.txt`
 
@@ -30,19 +30,19 @@ This repository provides a reproducible Snakemake workflow for **GRIP-seq** pair
 To minimize storage footprint, intermediate FASTQs produced by fastp and merged FASTQs are marked as temporary and are removed automatically by Snakemake. Final deliverables include:
 - QC reports (fastp + multiqc)
 - Final BAM + BAI
-- BigWig tracks (coverage and 5′ end signal; with/without blacklist)
+- BigWig tracks (coverage and 5′ end signal; blacklist tracks are optional)
 - Track text file
 
 ## Pipeline steps
 
-1. **fastp QC (per-lane)**  
-   Each input FASTQ pair is processed by fastp. Per-lane HTML/JSON reports are kept; cleaned FASTQs are temporary.
+1. **Merge raw FASTQs**
+   R1 files are concatenated to a single sample-level R1; R2 files are concatenated to a single sample-level R2 (gzip stream concatenation is valid).
 
-2. **Merge cleaned FASTQs**  
-   Cleaned R1 files are concatenated to a single sample-level R1; cleaned R2 files are concatenated to a single sample-level R2 (gzip stream concatenation is valid).
+2. **fastp step 1: QC, adapter trimming, and optional dedup**
+   The merged FASTQs are processed with fastp for QC, Illumina adapter trimming, and optional deduplication.
 
-3. **fastp (per-sample “report-only” pass)**  
-   The merged FASTQs are passed through fastp with trimming/filtering disabled to produce a **sample-level report** consistent with the data used for alignment. Output FASTQs from this step are also temporary.
+3. **fastp step 2: GRIP-seq custom trimming**
+   The step 1 FASTQs are processed with fixed GRIP-seq trims. Output FASTQs are temporary and feed STAR alignment.
 
 4. **STAR alignment (unique mapping)**  
    Reads are aligned with STAR using parameters that restrict to unique alignments (e.g., `--outFilterMultimapNmax 1`).
@@ -50,18 +50,18 @@ To minimize storage footprint, intermediate FASTQs produced by fastp and merged 
 5. **Post-alignment MAPQ filtering**  
    The STAR BAM is further filtered with `MAPQ > 10` (implemented as `samtools view -q 11`). The resulting BAM is coordinate-sorted and indexed.
 
-6. **BAM coverage BigWig (CPM)**  
-   BigWigs are generated from the filtered BAM using deepTools `bamCoverage` with `--normalizeUsing CPM`, producing tracks with and without blacklist filtering.
+6. **BAM coverage BigWig (CPM)**
+   BigWigs are generated from the filtered BAM using deepTools `bamCoverage` with `--normalizeUsing CPM`. If `filter_blacklist: true`, an additional blacklist-filtered track is generated.
 
-7. **GRIP-seq 5′ end signal extraction (Read2 first base)**  
+7. **GRIP-seq 5′ end signal extraction (Read2 first base)**
    The GRIP-seq 5′ signal is defined as the **first sequenced base of Read2**, projected onto the reference genome as a **1 bp** position per Read2 alignment:
    - If Read2 aligns to the **forward** strand: position = `reference_start`
    - If Read2 aligns to the **reverse** strand: position = `reference_end - 1`
 
-   The signal is **strand-agnostic** (no +/- split) and is normalized to **CPM**, where the denominator is the number of usable mapped Read2 records after filtering (MAPQ and alignment flags). Tracks are generated with and without blacklist filtering.
+   The signal is **strand-agnostic** (no +/- split) and is normalized to **CPM**, where the denominator is the number of usable mapped Read2 records after filtering (MAPQ and alignment flags). If `filter_blacklist: true`, an additional blacklist-filtered track is generated.
 
-8. **Blacklist filtering**  
-   ENCODE blacklist BED files are downloaded from the Boyle-Lab blacklist repository and cached under `resources/blacklist/`. BigWigs are produced in paired versions (with/without blacklist) for both coverage and 5′ signal.
+8. **Blacklist filtering**
+   Blacklist filtering is controlled by `filter_blacklist`. When enabled, provide exactly one of `blacklist.path` or `blacklist.url`. URL downloads are cached under `resources/blacklist/`.
 
 ## Requirements
 
@@ -98,9 +98,11 @@ Edit `workflow/config.yaml`.
 
 Key fields:
 
-* `genome`: one of `mm10, mm39, hg19, hg38, ce10, ce11, dm3, dm6`
+* `genome`: genome label for reporting/logging
 * `reference.star_index`: STAR genome index directory
 * `reference.fasta`: reference FASTA (used to generate `.fai` / chrom sizes)
+* `filter_blacklist`: enable/disable blacklist-filtered BigWig outputs
+* `blacklist`: manual blacklist source; set exactly one of `path` or `url` when `filter_blacklist: true`
 * `samples`: mapping of sample name to lists of FASTQs for R1 and R2
 
 Example:
@@ -112,6 +114,12 @@ reference:
   star_index: "/path/to/STAR/index"
   fasta: "/path/to/genome.fa"
   gtf: "/path/to/genes.gtf"
+
+filter_blacklist: true
+blacklist:
+  cache_dir: "resources/blacklist"
+  # path: "/path/to/custom.blacklist.bed"
+  # url: "https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/dm6-blacklist.v2.bed.gz"
 
 samples:
   sampleA:
@@ -162,11 +170,12 @@ If using UCSC, update `bigDataUrl=` paths to valid HTTP(S) URLs pointing to your
   * BAM contains properly paired alignments
   * Reads are mapped
   * MAPQ filtering is not overly stringent for your alignment settings
-* **Blacklist download issues**: Ensure network access to GitHub raw URLs; cached files are stored under `resources/blacklist/`.
+* **Blacklist configuration issues**: When `filter_blacklist: true`, set exactly one of `blacklist.path` or `blacklist.url`.
+* **Blacklist download issues**: Ensure network access to the configured URL; cached files are stored under `resources/blacklist/`.
 
 ## Citation / attribution
 
-Blacklist BED files are retrieved from the Boyle-Lab blacklist repository (ENCODE blacklist lists). Please cite the appropriate sources in publications as required by the blacklist resource and your analysis conventions.
+If you use Boyle-Lab/ENCODE blacklist BED files, please cite the appropriate sources in publications as required by the blacklist resource and your analysis conventions.
 
 
 ## Contact

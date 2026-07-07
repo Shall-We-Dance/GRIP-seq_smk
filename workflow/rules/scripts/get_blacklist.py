@@ -1,52 +1,66 @@
 # workflow/scripts/get_blacklist.py
-import os
 import gzip
+import os
 import shutil
-import urllib.request
 import urllib.error
+import urllib.request
+from contextlib import suppress
 
-genome = snakemake.config["genome"]
-cache_dir = snakemake.config.get("blacklist", {}).get("cache_dir", "resources/blacklist")
-os.makedirs(cache_dir, exist_ok=True)
-
-# Boyle-Lab blacklist repository (raw GitHub)
-url_dict = {
-    "mm10": "https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/mm10-blacklist.v2.bed.gz",
-    "mm39": "https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/mm39-blacklist.v2.bed.gz",
-    "hg19": "https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/hg19-blacklist.v2.bed.gz",
-    "hg38": "https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/hg38-blacklist.v2.bed.gz",
-    "ce11": "https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/ce11-blacklist.bed.gz",
-    "ce10": "https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/ce10-blacklist.bed.gz",
-    "dm3": "https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/dm3-blacklist.bed.gz",
-    "dm6": "https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/dm6-blacklist.bed.gz",
-}
-
-if genome not in url_dict:
-    raise ValueError(
-        f"Unsupported genome: {genome}. "
-        f"Available: {', '.join(sorted(url_dict.keys()))}"
-    )
-
-url = url_dict[genome]
-gz_path = os.path.join(cache_dir, os.path.basename(url))
+blacklist_config = snakemake.config.get("blacklist", {})
+url = blacklist_config.get("url")
 out_bed = snakemake.output.bed
 
-# Download if needed
-if not os.path.exists(gz_path):
-    print(f"[get_blacklist] Downloading {genome} blacklist:")
-    print(f"  URL: {url}")
-    print(f"  -> {gz_path}")
-    try:
-        urllib.request.urlretrieve(url, gz_path)
-    except (urllib.error.URLError, urllib.error.HTTPError) as e:
-        raise RuntimeError(f"Failed to download blacklist from {url}: {e}")
+if not url:
+    raise ValueError("No blacklist.url provided; cannot download blacklist.")
 
-# Unzip to requested output path
-print(f"[get_blacklist] Unzipping:")
-print(f"  {gz_path} -> {out_bed}")
 os.makedirs(os.path.dirname(out_bed), exist_ok=True)
 
-with gzip.open(gz_path, "rb") as f_in, open(out_bed, "wb") as f_out:
-    shutil.copyfileobj(f_in, f_out)
+print("[get_blacklist] Downloading blacklist:")
+print(f"  URL: {url}")
+print(f"  Output: {out_bed}")
+
+tmp_path = out_bed + ".gz" if url.endswith(".gz") else out_bed + ".tmp"
+
+
+def download_blacklist(download_url, destination, retries=3, timeout=30):
+    last_error = None
+    headers = {"User-Agent": "GRIP-seq_smk/blacklist-fetch"}
+    for attempt in range(1, retries + 1):
+        try:
+            request = urllib.request.Request(download_url, headers=headers)
+            with urllib.request.urlopen(request, timeout=timeout) as response, open(
+                destination, "wb"
+            ) as f_out:
+                shutil.copyfileobj(response, f_out)
+            if os.path.getsize(destination) == 0:
+                raise RuntimeError("downloaded file is empty")
+            return
+        except (urllib.error.URLError, urllib.error.HTTPError, RuntimeError) as exc:
+            last_error = exc
+            with suppress(FileNotFoundError):
+                os.remove(destination)
+            if attempt < retries:
+                print(f"[get_blacklist] Download attempt {attempt} failed: {exc}")
+                print("[get_blacklist] Retrying...")
+    raise RuntimeError(f"Failed to download blacklist from {download_url}: {last_error}")
+
+
+download_blacklist(url, tmp_path)
+
+if tmp_path.endswith(".gz"):
+    print("[get_blacklist] Unzipping downloaded blacklist.")
+    try:
+        with gzip.open(tmp_path, "rb") as f_in, open(out_bed, "wb") as f_out:
+            shutil.copyfileobj(f_in, f_out)
+    except OSError as exc:
+        raise RuntimeError(
+            "Downloaded blacklist is not a valid gzip file. "
+            f"Check the URL or network/proxy settings. Original error: {exc}"
+        )
+    finally:
+        with suppress(FileNotFoundError):
+            os.remove(tmp_path)
+else:
+    shutil.move(tmp_path, out_bed)
 
 print("[get_blacklist] Done.")

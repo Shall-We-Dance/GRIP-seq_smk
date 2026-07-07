@@ -1,5 +1,5 @@
 # workflow/config.yaml
-genome: dm6   # must be one of: mm10, mm39, hg19, hg38, ce10, ce11, dm3, dm6
+genome: dm6   # genome label for reporting/logging
 
 threads:
   fastp: 8
@@ -12,9 +12,18 @@ reference:
   fasta: "/path/to/genome.fa"           # used for .fai (chrom sizes)
   gtf: "/path/to/genes.gtf"             # optional, can be "" if not used
 
-# Blacklist (will be auto-downloaded and cached)
+# Enable blacklist filtering (requires blacklist.path or blacklist.url)
+filter_blacklist: true
+
+# Blacklist (manual)
+# Boyle-Lab blacklist repository (examples):
+#   https://github.com/Boyle-Lab/Blacklist
+#   https://github.com/Boyle-Lab/Blacklist/tree/master/lists
 blacklist:
   cache_dir: "resources/blacklist"
+  # Provide exactly one of the following:
+  # path: "/path/to/custom.blacklist.bed"
+  # url: "https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/dm6-blacklist.v2.bed.gz"
 
 # Samples: multiple technical replicates (or lanes) under one sample
 samples:
