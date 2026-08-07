@@ -7,6 +7,10 @@ OUTDIR = config["output"]["dir"]
 def units(sample):
     return list(range(len(config["samples"][sample]["R1"])))
 
+DEDUP_CFG = config.get("fastp", {}).get("dedup_adapter", {})
+GRIP_CFG = config.get("fastp", {}).get("grip_trim", {})
+GRIP_ENABLED = bool(GRIP_CFG.get("enable", True))
+
 
 # ----------------------------
 # Merge raw FASTQ per sample (before fastp)
@@ -50,12 +54,12 @@ rule fastp_sample_level:
     conda:
         "envs/qc.yaml"
     params:
-        dedup_arg=("--dedup" if bool(config.get("fastp", {}).get("dedup_adapter", {}).get("dedup", True)) else ""),
-        disable_adapter_arg=("--disable_adapter_trimming" if bool(config.get("fastp", {}).get("grip_trim", {}).get("disable_adapter_trimming", True)) else ""),
-        trim_f=int(config.get("fastp", {}).get("grip_trim", {}).get("trim_front_r1", 12)),
-        trim_t=int(config.get("fastp", {}).get("grip_trim", {}).get("trim_tail_r1", 10)),
-        trim_F=int(config.get("fastp", {}).get("grip_trim", {}).get("trim_front_r2", 10)),
-        trim_T=int(config.get("fastp", {}).get("grip_trim", {}).get("trim_tail_r2", 12)),
+        dedup_arg=("--dedup" if (bool(DEDUP_CFG.get("enable", True)) and bool(DEDUP_CFG.get("dedup", True))) else ""),
+        disable_adapter_arg=("--disable_adapter_trimming" if (not GRIP_ENABLED or bool(GRIP_CFG.get("disable_adapter_trimming", True))) else ""),
+        trim_f=int(GRIP_CFG.get("trim_front_r1", 12)) if GRIP_ENABLED else 0,
+        trim_t=int(GRIP_CFG.get("trim_tail_r1", 10)) if GRIP_ENABLED else 0,
+        trim_F=int(GRIP_CFG.get("trim_front_r2", 10)) if GRIP_ENABLED else 0,
+        trim_T=int(GRIP_CFG.get("trim_tail_r2", 12)) if GRIP_ENABLED else 0,
     shell:
         r"""
         set -euo pipefail

@@ -19,3 +19,11 @@ id_ed25519
 # Python cache
 __pycache__/
 *.py[cod]
+
+# Pipeline run artifacts
+results/
+logs/
+.snakemake/
+
+# Downloaded resources cache
+resources/blacklist/

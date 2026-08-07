@@ -12,6 +12,8 @@ include: "rules/align_star.smk"
 include: "rules/bam_post.smk"
 include: "rules/signal_5prime.smk"
 include: "rules/tracks.smk"
+include: "rules/bigwig_compare.smk"
+include: "rules/motif_anchor.smk"
 
 BIGWIG_TARGETS = []
 BIGWIG_TARGETS += expand(f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.bamCPM.noblacklist.bw", sample=SAMPLES)
@@ -37,13 +39,21 @@ rule all:
         # Track files
         expand(f"{OUTDIR}/tracks/{{sample}}/{{sample}}.tracks.txt", sample=SAMPLES),
 
+        # bigwigCompare log2(IP/Input) tracks (optional)
+        BIGWIG_COMPARE_TARGETS,
+
+        # Motif-anchored 1-nt m6A sites (optional)
+        MOTIF_TARGETS,
+
         # Cleanup sentinel
         f"{OUTDIR}/.tmp_cleanup.done"
 
 
 rule cleanup_tmp:
     input:
-        BIGWIG_TARGETS
+        BIGWIG_TARGETS,
+        BIGWIG_COMPARE_TARGETS,
+        MOTIF_TARGETS
     output:
         touch(f"{OUTDIR}/.tmp_cleanup.done")
     shell:

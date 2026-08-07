@@ -53,7 +53,8 @@ def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bam", required=True)
     ap.add_argument("--fai", required=True)
-    ap.add_argument("--out-bw", required=True)
+    ap.add_argument("--out-bw", default=None)
+    ap.add_argument("--out-bed", default=None)
     ap.add_argument("--min-mapq", type=int, default=11)
     ap.add_argument("--blacklist-bed", default=None)
     ap.add_argument("--require-proper-pair", action="store_true")
@@ -67,7 +68,8 @@ def resolve_args():
     args = SimpleNamespace(
         bam=snakemake.input.bam,
         fai=snakemake.input.fai,
-        out_bw=snakemake.output.bw,
+        out_bw=snakemake.output.get("bw"),
+        out_bed=snakemake.output.get("bed"),
         min_mapq=int(snakemake.params.min_mapq),
         blacklist_bed=snakemake.input.get("bl"),
         require_proper_pair=snakemake.params.get("require_proper_pair", False),
@@ -93,6 +95,8 @@ def main():
 
     # count positions as sparse dict: (chrom -> {pos0: count})
     counts = {c: {} for c, _ in chroms}
+    # per-strand counts only when a BED output is requested
+    strand_counts = {c: {} for c, _ in chroms} if args.out_bed else None
     n_read2 = 0
 
     for r in bam.fetch(until_eof=True):
@@ -129,10 +133,38 @@ def main():
         d = counts[chrom]
         d[pos0] = d.get(pos0, 0) + 1
 
+        if strand_counts is not None:
+            strand = "-" if r.is_reverse else "+"
+            sd = strand_counts[chrom].setdefault(pos0, {"+": 0, "-": 0})
+            sd[strand] += 1
+
     bam.close()
 
     if n_read2 == 0:
         raise RuntimeError("No usable Read2 records after filtering; cannot compute CPM.")
+
+    if args.out_bed:
+        sample = ""
+        if "snakemake" in globals() and snakemake.wildcards:
+            sample = snakemake.wildcards.get("sample", "")
+        prefix = sample or "site"
+        os.makedirs(os.path.dirname(args.out_bed), exist_ok=True)
+        with open(args.out_bed, "w") as f:
+            for chrom, _L in chroms:
+                sd = strand_counts.get(chrom, {})
+                for pos0 in sorted(sd.keys()):
+                    for strand in ("+", "-"):
+                        n = sd[pos0].get(strand, 0)
+                        if n == 0:
+                            continue
+                        f.write(
+                            f"{chrom}\t{pos0}\t{pos0 + 1}\t{prefix}_{pos0 + 1}_{strand}\t{n}\t{strand}\n"
+                        )
+
+    if not args.out_bw:
+        if log_path:
+            log_fh.close()
+        return
 
     scale = 1e6 / n_read2
 

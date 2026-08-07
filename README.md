@@ -1,183 +1,132 @@
 # GRIP-seq Snakemake Analysis Pipeline
 
-This repository provides a reproducible Snakemake workflow for **GRIP-seq** paired-end sequencing data. The pipeline merges sample FASTQs, performs sample-level QC and trimming with fastp, generates MultiQC summaries, aligns reads to a reference genome with STAR while retaining only uniquely mapped reads, and produces genome-browser-ready tracks including a **GRIP-seq 5′ end signal** derived from **Read 2 first base** (1 bp, strand-agnostic) with CPM normalization. Optional blacklist-filtered BigWig tracks can be generated from a manually provided BED file or URL.
+A reproducible Snakemake workflow for **GRIP-seq** (Genetically encoded RNA
+Interactome Profiling / crosslinking + IP) paired-end sequencing data.
+
+The pipeline merges per-sample FASTQs, performs two-step QC/trimming with
+fastp, aligns with STAR (unique mappers only), filters alignments, and
+produces genome-browser-ready tracks, including the GRIP-seq 5′ end signal
+derived from the **Read 2 first base** (1 bp, CPM normalized). Optional
+modules add blacklist-filtered tracks, deepTools `bigwigCompare`
+log2(IP/Input) ratio tracks, and motif anchoring of the 1-nt crosslink sites
+(e.g. m6A DRACH anchoring).
 
 ## Overview
 
 ### Inputs
-- Paired-end raw FASTQ files (`*.fastq.gz`) for each sample.
-- Multiple FASTQ pairs (lanes / technical replicates) may be assigned to the same sample.
+
+- Paired-end raw FASTQ files (`*.fastq.gz`) per sample (from `config.yaml`).
+- Multiple FASTQ pairs (lanes / technical replicates) may be assigned to the
+  same sample.
 
 ### Outputs (per sample)
+
 - **QC**
-  - `results/qc/fastp/<sample>/merged_step1.html/json`
-  - `results/qc/fastp/<sample>/merged_fastp_final.html/json`
+  - `results/qc/fastp/<sample>/merged_step1.html/json` (adapter trimming + dedup)
+  - `results/qc/fastp/<sample>/merged_fastp_final.html/json` (GRIP-seq custom trimming)
   - `results/qc/multiqc/multiqc_report.html`
 - **Alignment**
-  - `results/star/<sample>/<sample>.unique.mapq11.sorted.bam`
-  - `results/star/<sample>/<sample>.unique.mapq11.sorted.bam.bai`
+  - `results/star/<sample>/<sample>.unique.mapq11.sorted.bam` (+ `.bai`)
 - **Signal tracks (BigWig, CPM normalized)**
-  - BAM coverage:
-    - `results/bigwig/<sample>/<sample>.bamCPM.noblacklist.bw`
-    - `results/bigwig/<sample>/<sample>.bamCPM.blacklist.bw` (if `filter_blacklist: true`)
-  - GRIP-seq 5′ end signal (Read2 first base, 1 bp):
-    - `results/bigwig/<sample>/<sample>.R2firstbaseCPM.noblacklist.bw`
-    - `results/bigwig/<sample>/<sample>.R2firstbaseCPM.blacklist.bw` (if `filter_blacklist: true`)
+  - BAM coverage: `results/bigwig/<sample>/<sample>.bamCPM[.blacklist].bw`
+  - GRIP-seq 5′ end signal (Read2 first base, 1 bp): `results/bigwig/<sample>/<sample>.R2firstbaseCPM[.blacklist].bw`
+- **Group comparisons (log2(IP/Input))**
+  - `results/bigwig/compare/<group>.<track>.log2.bw` (per-sample BigWigs
+    within each group side are averaged first, then compared)
+- **Motif-anchored 1-nt sites**
+  - `results/motif/<sample>/<sample>.anchored.bed` (BED6 + motif column)
 - **Genome browser track file**
   - `results/tracks/<sample>/<sample>.tracks.txt`
 
 ### Intermediate file handling
-To minimize storage footprint, intermediate FASTQs produced by fastp and merged FASTQs are marked as temporary and are removed automatically by Snakemake. Final deliverables include:
-- QC reports (fastp + multiqc)
-- Final BAM + BAI
-- BigWig tracks (coverage and 5′ end signal; blacklist tracks are optional)
-- Track text file
+
+Intermediate FASTQs and temporary files are marked as `temp()` and removed
+automatically by Snakemake. Final deliverables are the QC reports, final
+BAM + BAI, BigWig tracks, comparison tracks, anchored site BEDs and track
+files.
 
 ## Pipeline steps
 
-1. **Merge raw FASTQs**
-   R1 files are concatenated to a single sample-level R1; R2 files are concatenated to a single sample-level R2 (gzip stream concatenation is valid).
-
-2. **fastp step 1: QC, adapter trimming, and optional dedup**
-   The merged FASTQs are processed with fastp for QC, Illumina adapter trimming, and optional deduplication.
-
-3. **fastp step 2: GRIP-seq custom trimming**
-   The step 1 FASTQs are processed with fixed GRIP-seq trims. Output FASTQs are temporary and feed STAR alignment.
-
-4. **STAR alignment (unique mapping)**  
-   Reads are aligned with STAR using parameters that restrict to unique alignments (e.g., `--outFilterMultimapNmax 1`).
-
-5. **Post-alignment MAPQ filtering**  
-   The STAR BAM is further filtered with `MAPQ > 10` (implemented as `samtools view -q 11`). The resulting BAM is coordinate-sorted and indexed.
-
-6. **BAM coverage BigWig (CPM)**
-   BigWigs are generated from the filtered BAM using deepTools `bamCoverage` with `--normalizeUsing CPM`. If `filter_blacklist: true`, an additional blacklist-filtered track is generated.
-
-7. **GRIP-seq 5′ end signal extraction (Read2 first base)**
-   The GRIP-seq 5′ signal is defined as the **first sequenced base of Read2**, projected onto the reference genome as a **1 bp** position per Read2 alignment:
-   - If Read2 aligns to the **forward** strand: position = `reference_start`
-   - If Read2 aligns to the **reverse** strand: position = `reference_end - 1`
-
-   The signal is **strand-agnostic** (no +/- split) and is normalized to **CPM**, where the denominator is the number of usable mapped Read2 records after filtering (MAPQ and alignment flags). If `filter_blacklist: true`, an additional blacklist-filtered track is generated.
-
-8. **Blacklist filtering**
-   Blacklist filtering is controlled by `filter_blacklist`. When enabled, provide exactly one of `blacklist.path` or `blacklist.url`. URL downloads are cached under `resources/blacklist/`.
+1. **Merge raw FASTQs** per sample (R1 and R2 concatenated separately).
+2. **fastp step 1**: QC, Illumina adapter trimming, optional dedup
+   (`fastp.dedup_adapter`).
+3. **fastp step 2**: GRIP-seq custom fixed trimming (`fastp.grip_trim`).
+   Disabling it makes step 2 a pass-through.
+4. **STAR alignment**: unique alignments only
+   (`--outFilterMultimapNmax 1`).
+5. **Post-alignment filtering**: MAPQ > 10, explicit removal of secondary
+   (0x100) and supplementary (0x800) alignments; coordinate-sorted + indexed.
+6. **BAM coverage BigWig (CPM)** via deepTools `bamCoverage`; optional
+   blacklist-filtered version.
+7. **GRIP-seq 5′ end signal (Read2 first base)**: 1 bp position per Read2
+   alignment (reference_start for forward, reference_end − 1 for reverse),
+   strand-aware, CPM normalized by usable Read2 counts. An optional
+   strand-aware 1-nt BED of these positions can be emitted.
+8. **Blacklist filtering** (optional; URL-downloaded and cached under
+   `resources/blacklist/`).
+9. **bigwigCompare log2(IP/Input) tracks** (optional): per-group averaging of
+   per-sample BigWigs, then `bigwigCompare --operation log2` with a
+   configurable pseudocount and bin size.
+10. **Motif anchoring** (optional): each R2-first-base 1-nt site is shifted to
+    the cross-link site (Read2 is cDNA; `+site_shift` on '+' reads,
+    `−site_shift` on '−' reads), optionally anchored to a motif on the RNA
+    strand (default DRACH with the m6A at position 3), and a corrected 1-nt
+    BED is written.
 
 ## Requirements
 
-- **Snakemake** (recommended: Snakemake >= 7)
-- Conda / Mamba (recommended for environment management)
-- STAR
-- samtools
-- fastp
-- MultiQC
-- deepTools
-- Python packages: `pysam`, `pyBigWig`
+- Snakemake >= 7
+- Conda / Mamba (recommended)
+- Tools are installed on-the-fly from the pinned conda environments in
+  `workflow/envs/` (`--use-conda`).
 
-All dependencies are provided via the conda environments under `workflow/envs/`.
+## Installation & usage
 
-## Installation
-
-Recommended: create environments on-the-fly via Snakemake.
-
-Example:
 ```bash
 cd workflow
-snakemake --use-conda --cores 16
-```
-
-To speed up conda solves, consider using mamba:
-
-```bash
-snakemake --use-conda --conda-frontend mamba --cores 16
-```
-
-## Configuration
-
-Edit `workflow/config.yaml`.
-
-Key fields:
-
-* `genome`: genome label for reporting/logging
-* `reference.star_index`: STAR genome index directory
-* `reference.fasta`: reference FASTA (used to generate `.fai` / chrom sizes)
-* `filter_blacklist`: enable/disable blacklist-filtered BigWig outputs
-* `blacklist`: manual blacklist source; set exactly one of `path` or `url` when `filter_blacklist: true`
-* `samples`: mapping of sample name to lists of FASTQs for R1 and R2
-
-Example:
-
-```yaml
-genome: dm6
-
-reference:
-  star_index: "/path/to/STAR/index"
-  fasta: "/path/to/genome.fa"
-  gtf: "/path/to/genes.gtf"
-
-filter_blacklist: true
-blacklist:
-  cache_dir: "resources/blacklist"
-  # path: "/path/to/custom.blacklist.bed"
-  # url: "https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/dm6-blacklist.v2.bed.gz"
-
-samples:
-  sampleA:
-    R1:
-      - "raw/sampleA_L001_R1.fastq.gz"
-      - "raw/sampleA_L002_R1.fastq.gz"
-    R2:
-      - "raw/sampleA_L001_R2.fastq.gz"
-      - "raw/sampleA_L002_R2.fastq.gz"
-```
-
-Notes:
-
-* The workflow assumes paired-end reads and requires both R1 and R2 lists to be the same length per sample.
-
-## Running the workflow
-
-From `workflow/`:
-
-```bash
 snakemake --use-conda --cores 16
 ```
 
 Dry run:
 
 ```bash
-snakemake -n
+snakemake -n --use-conda
 ```
 
-## Outputs for genome browsers
+To only run a specific module (e.g. motif anchoring):
 
-BigWig files can be loaded directly into IGV or UCSC Genome Browser (if hosted).
-A simple UCSC-style track file is generated at:
+```bash
+snakemake --use-conda --cores 8 results/motif/sampleA_IP_1/sampleA_IP_1.anchored.bed
+```
 
-* `results/tracks/<sample>/<sample>.tracks.txt`
+## Configuration
 
-If using UCSC, update `bigDataUrl=` paths to valid HTTP(S) URLs pointing to your hosted BigWigs.
+Edit `config.yaml`. Key fields:
 
-## Notes on normalization
+- `reference.star_index` / `reference.fasta` / `reference.gtf`
+- `filter_blacklist` and `blacklist` (exactly one of `path` / `url`)
+- `samples`: sample name → lists of R1/R2 FASTQs
+- `fastp.dedup_adapter` / `fastp.grip_trim` (enable flags respected)
+- `star.multimap_nmax` (1 = unique alignments)
+- `filtering.min_mapq` (default 11, i.e. MAPQ > 10)
+- `bigwigCompare`: `enable`, `operation`, `pseudocount`, `binSize`,
+  `tracks`, `groups` (IP/Input sample lists per comparison)
+- `motif_anchoring`: `enable`, `motif`, `motif_pos`, `site_shift`,
+  `search_window`, `keep_unmatched`
 
-* **BAM coverage tracks** use deepTools `bamCoverage --normalizeUsing CPM`.
-* **GRIP-seq 5′ end tracks** are normalized by **CPM using Read2 counts** (one event per Read2), consistent with the Read2-first-base definition of the GRIP-seq 5′ signal.
+## Notes
 
-## Troubleshooting
+- The workflow assumes paired-end reads; R1/R2 lists must have equal length
+  per sample.
+- The GRIP-seq 5′ end track is defined as the first sequenced base of Read2
+  (1 bp per Read2), CPM normalized by Read2 counts.
+- `bigwigCompare` only accepts two files, so replicates are averaged
+  (per-base mean, missing = 0) before the log2 ratio is computed.
+- At `binSize: 1` a whole-genome comparison takes ~1.5 h on hg38; use 10–25
+  for fast browsing tracks.
+- Motif anchoring is validated at workflow startup (motif length/position
+  consistency, group sample names, etc.).
 
-* **No reads after filtering**: If the 5′ extraction step fails with “No usable Read2 records”, confirm:
+## License
 
-  * BAM contains properly paired alignments
-  * Reads are mapped
-  * MAPQ filtering is not overly stringent for your alignment settings
-* **Blacklist configuration issues**: When `filter_blacklist: true`, set exactly one of `blacklist.path` or `blacklist.url`.
-* **Blacklist download issues**: Ensure network access to the configured URL; cached files are stored under `resources/blacklist/`.
-
-## Citation / attribution
-
-If you use Boyle-Lab/ENCODE blacklist BED files, please cite the appropriate sources in publications as required by the blacklist resource and your analysis conventions.
-
-
-## Contact
-
-For questions or extensions (e.g., track hubs, fragment-level scaling, additional QC metrics), please open an issue or contact the pipeline maintainer.
+MIT — see `LICENSE`.

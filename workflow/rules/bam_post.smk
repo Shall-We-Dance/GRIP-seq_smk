@@ -18,8 +18,8 @@ rule filter_mapq_and_index:
     shell:
         r"""
         mkdir -p $(dirname {output.bam}) $(dirname {log})
-        # MAPQ > 10  => min_mapq=11
-        samtools view -@ {threads} -b -q {MIN_MAPQ} {input.bam} \
+        # MAPQ > 10  => min_mapq=11; drop secondary (0x100) and supplementary (0x800)
+        samtools view -@ {threads} -b -F 0x100 -F 0x800 -q {MIN_MAPQ} {input.bam} \
           | samtools sort -@ {threads} -o {output.bam} -
         samtools index -@ {threads} {output.bam}
         """

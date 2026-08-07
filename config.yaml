@@ -1,16 +1,20 @@
-# workflow/config.yaml
-genome: dm6   # genome label for reporting/logging
+# workflow config.yaml
+# GRIP-seq Snakemake pipeline configuration
+# Replace all paths and sample names below with your own.
+
+genome: hg38   # genome label for reporting/logging
 
 threads:
   fastp: 8
   star: 16
   samtools: 8
+  bigwig: 8
 
 # Reference & index (STAR)
 reference:
-  star_index: "/path/to/STAR/index"     # directory produced by STAR --runMode genomeGenerate
-  fasta: "/path/to/genome.fa"           # used for .fai (chrom sizes)
-  gtf: "/path/to/genes.gtf"             # optional, can be "" if not used
+  star_index: "/path/to/STAR/index"             # directory produced by STAR --runMode genomeGenerate
+  fasta: "/path/to/genome.fa"                   # used for .fai (chrom sizes)
+  gtf: "/path/to/genes.gtf"                     # optional, can be "" if not used
 
 # Enable blacklist filtering (requires blacklist.path or blacklist.url)
 filter_blacklist: true
@@ -23,33 +27,52 @@ blacklist:
   cache_dir: "resources/blacklist"
   # Provide exactly one of the following:
   # path: "/path/to/custom.blacklist.bed"
-  # url: "https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/dm6-blacklist.v2.bed.gz"
+  url: "https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/hg38-blacklist.v2.bed.gz"
 
 # Samples: multiple technical replicates (or lanes) under one sample
+# Raw FASTQ paths are local; adjust per your data layout.
 samples:
-  sampleA:
+  sampleA_IP_1:
     R1:
-      - "raw/sampleA_L001_R1.fastq.gz"
-      - "raw/sampleA_L002_R1.fastq.gz"
+      - "/path/to/raw/sampleA_IP_1_L1_R1.fastq.gz"
     R2:
-      - "raw/sampleA_L001_R2.fastq.gz"
-      - "raw/sampleA_L002_R2.fastq.gz"
+      - "/path/to/raw/sampleA_IP_1_L1_R2.fastq.gz"
 
-  sampleB:
+  sampleA_IP_2:
     R1:
-      - "raw/sampleB_R1.fastq.gz"
+      - "/path/to/raw/sampleA_IP_2_L1_R1.fastq.gz"
     R2:
-      - "raw/sampleB_R2.fastq.gz"
+      - "/path/to/raw/sampleA_IP_2_L1_R2.fastq.gz"
+
+  sampleA_Input_1:
+    R1:
+      - "/path/to/raw/sampleA_Input_1_L1_R1.fastq.gz"
+    R2:
+      - "/path/to/raw/sampleA_Input_1_L1_R2.fastq.gz"
+
+  sampleB_IP_1:
+    R1:
+      - "/path/to/raw/sampleB_IP_1_L1_R1.fastq.gz"
+    R2:
+      - "/path/to/raw/sampleB_IP_1_L1_R2.fastq.gz"
+
+  sampleB_Input_1:
+    R1:
+      - "/path/to/raw/sampleB_Input_1_L1_R1.fastq.gz"
+    R2:
+      - "/path/to/raw/sampleB_Input_1_L1_R2.fastq.gz"
 
 # fastp settings
 fastp:
 
   # Step1: QC + Illumina adapter trimming + dedup
+  # enable=false disables dedup entirely; dedup=true enables --dedup (used when enable=true)
   dedup_adapter:
     enable: true
     dedup: true
 
   # Step2: GRIP-seq custom trimming
+  # enable=false makes step2 a pass-through (no fixed trims, no adapter trimming)
   grip_trim:
     enable: true
     disable_adapter_trimming: true   # -A
@@ -60,11 +83,54 @@ fastp:
 
 # STAR alignment settings
 star:
+  multimap_nmax: 1   # --outFilterMultimapNmax; 1 = unique alignment only
   extra: ""  # optional additional args
 
 # Filtering
 filtering:
   min_mapq: 11   # MAPQ > 10
+
+# bigwigCompare: log2(IP/Input) tracks per group (deepTools bigwigCompare)
+# Per-sample BigWigs within each group side are averaged (pooled) first,
+# then log2(IP/Input) is computed. Output: results/bigwig/compare/<group>.<track>.<operation>.bw
+bigwigCompare:
+  enable: true
+  operation: log2          # --operation: log2 / ratio / subtract ...
+  pseudocount: 1           # --pseudocount (added before log2 to avoid log(0))
+  binSize: 1               # --binSize; NOTE: 1bp is slow (~1.5h per track on hg38), 10/25 is much faster
+  # Per-sample tracks to compare (must match names in results/bigwig/<sample>/)
+  tracks:
+    - R2firstbaseCPM.noblacklist
+    - bamCPM.noblacklist
+
+  # groups: comparison name -> IP / Input sample lists (all must exist in config.samples)
+  groups:
+    sampleA_log2_IP_over_Input:
+      IP:
+        - sampleA_IP_1
+        - sampleA_IP_2
+      Input:
+        - sampleA_Input_1
+    sampleB_log2_IP_over_Input:
+      IP:
+        - sampleB_IP_1
+      Input:
+        - sampleB_Input_1
+
+# Motif anchoring of R2-first-base 1-nt sites (output: results/motif/<sample>/<sample>.anchored.bed)
+# Site definition: Read2 is cDNA (reverse complement of RNA), so the cross-link/m6A site is
+#   upstream of the R2 5' base along the RNA: genomic +site_shift for '+' R2 reads,
+#   -site_shift for '-' R2 reads. Per GECX-RNA: m6A = 1 nt upstream of R2 start => site_shift: 1.
+# Motif anchoring (optional): the site must coincide with motif position `motif_pos` of `motif`
+#   (matched on the RNA strand; for m6A: DRACH, 3rd base A). search_window>0 corrects to the
+#   nearest DRACH within +/-window bp instead of requiring an exact match.
+motif_anchoring:
+  enable: true
+  motif: DRACH            # IUPAC motif on the RNA strand
+  motif_pos: 3            # 1-based position of the modification base within the motif (m6A = 3)
+  site_shift: 1           # nt upstream of R2 5' base to the cross-link site (fwd +1 / rev -1)
+  search_window: 0        # 0 = exact motif required; >0 = search nearest match within +/-N bp
+  keep_unmatched: false   # keep sites with no motif (motif col "NA") instead of dropping
 
 # Output naming
 output:

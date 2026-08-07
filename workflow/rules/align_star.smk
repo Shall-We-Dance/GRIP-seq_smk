@@ -19,7 +19,8 @@ rule star_align_unique:
         "envs/star.yaml"
     params:
         index=config["reference"]["star_index"],
-        extra=config["star"].get("extra", "")
+        extra=config["star"].get("extra", ""),
+        multimap_nmax=int(config.get("star", {}).get("multimap_nmax", 1))
     shell:
         r"""
         mkdir -p $(dirname {output.bam}) $(dirname {output.log_final}) $(dirname {log})
@@ -28,6 +29,7 @@ rule star_align_unique:
           --genomeDir {params.index} \
           --readFilesIn {input.r1} {input.r2} \
           --readFilesCommand zcat \
+          --outFilterMultimapNmax {params.multimap_nmax} \
           --outFileNamePrefix {OUTDIR}/tmp/star/{wildcards.sample}/{wildcards.sample}. \
           --outSAMtype BAM SortedByCoordinate \
           {params.extra} \

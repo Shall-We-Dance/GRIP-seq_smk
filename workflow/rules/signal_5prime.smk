@@ -11,7 +11,7 @@ rule bam_to_bigwig_cpm_noblacklist:
         bw=f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.bamCPM.noblacklist.bw"
     log:
         f"logs/bigwig/{{sample}}.bamCoverage.noblacklist.log"
-    threads: 8
+    threads: int(config.get("threads", {}).get("bigwig", 8))
     conda:
         "envs/qc.yaml"
     shell:
@@ -36,7 +36,7 @@ if FILTER_BLACKLIST:
             bw=f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.bamCPM.blacklist.bw"
         log:
             f"logs/bigwig/{{sample}}.bamCoverage.blacklist.log"
-        threads: 8
+        threads: int(config.get("threads", {}).get("bigwig", 8))
         conda:
             "envs/qc.yaml"
         shell:

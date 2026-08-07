@@ -48,6 +48,45 @@ def validate_workflow_config():
             "blacklist.path or blacklist.url."
         )
 
+    bwc = config.get("bigwigCompare", {})
+    if bwc.get("enable", True):
+        groups = bwc.get("groups", {})
+        if not groups:
+            raise ValueError(
+                "bigwigCompare is enabled; define at least one comparison in "
+                "bigwigCompare.groups."
+            )
+        for gname, g in groups.items():
+            if not isinstance(g, dict):
+                raise ValueError(
+                    f"bigwigCompare.groups.{gname} must be a dict with IP/Input lists."
+                )
+            for key in ("IP", "Input"):
+                lst = g.get(key, [])
+                if not isinstance(lst, list) or not lst:
+                    raise ValueError(
+                        f"bigwigCompare.groups.{gname}.{key} must be a non-empty "
+                        "list of sample names."
+                    )
+                for s in lst:
+                    if s not in config["samples"]:
+                        raise ValueError(
+                            f"bigwigCompare.groups.{gname}.{key}: sample '{s}' "
+                            "not found in config.samples."
+                        )
+
+    mc = config.get("motif_anchoring", {})
+    if mc.get("enable", True):
+        motif = str(mc.get("motif", "DRACH"))
+        motif_pos = int(mc.get("motif_pos", 3))
+        if not 1 <= motif_pos <= len(motif):
+            raise ValueError(
+                f"motif_anchoring.motif_pos ({motif_pos}) must be within "
+                f"1..{len(motif)} of motif '{motif}'."
+            )
+        if int(mc.get("search_window", 0)) < 0:
+            raise ValueError("motif_anchoring.search_window must be >= 0.")
+
 rule faidx_reference:
     input:
         fa=config["reference"]["fasta"]
