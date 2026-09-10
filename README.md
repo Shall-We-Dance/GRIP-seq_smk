@@ -181,7 +181,7 @@ GRIP/GECX-RNA method: Sun, W., Wang, N., Liu, H. et al.
 [Genetically encoded chemical crosslinking of RNA in vivo](https://www.nature.com/articles/s41557-022-01038-4).
 *Nature Chemistry* **15**, 21–32 (2023).
 
-Related original analysis code: [Shall-We-Dance/GRIPseq](https://github.com/Shall-We-Dance/GRIP-seq).
+Related original analysis code: [Shall-We-Dance/GRIP-seq](https://github.com/Shall-We-Dance/GRIP-seq).
 This workflow is an implementation with the choices described above, not a claim
 of exact reproduction of every published analysis step.
 
