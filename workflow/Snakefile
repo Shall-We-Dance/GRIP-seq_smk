@@ -14,6 +14,8 @@ include: "rules/signal_5prime.smk"
 include: "rules/tracks.smk"
 include: "rules/bigwig_compare.smk"
 include: "rules/motif_anchor.smk"
+include: "rules/motif_de_novo.smk"
+include: "rules/metaplot.smk"
 
 BIGWIG_TARGETS = []
 BIGWIG_TARGETS += expand(f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.bamCPM.noblacklist.bw", sample=SAMPLES)
@@ -23,10 +25,12 @@ if FILTER_BLACKLIST:
     BIGWIG_TARGETS += expand(f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.R2firstbaseCPM.blacklist.bw", sample=SAMPLES)
 
 rule all:
+    default_target: True
     input:
         # QC
         expand(f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.html", sample=SAMPLES),
         expand(f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.json", sample=SAMPLES),
+        f"{OUTDIR}/qc/star/short_read_mapping_summary.tsv",
         f"{OUTDIR}/qc/multiqc/multiqc_report.html",
 
         # Alignment (final BAM kept)
@@ -45,20 +49,8 @@ rule all:
         # Motif-anchored 1-nt m6A sites (optional)
         MOTIF_TARGETS,
 
-        # Cleanup sentinel
-        f"{OUTDIR}/.tmp_cleanup.done"
+        # Independent, strand-aware RT-termination de novo motif discovery
+        DE_NOVO_MOTIF_TARGETS,
 
-
-rule cleanup_tmp:
-    input:
-        BIGWIG_TARGETS,
-        BIGWIG_COMPARE_TARGETS,
-        MOTIF_TARGETS
-    output:
-        touch(f"{OUTDIR}/.tmp_cleanup.done")
-    shell:
-        r"""
-        set -euo pipefail
-        echo "[cleanup] Removing temporary directory: {OUTDIR}/tmp"
-        rm -rf {OUTDIR}/tmp
-        """
+        # Strand-aware TSS-TES metaplots for both signal types
+        METAPLOT_TARGETS,

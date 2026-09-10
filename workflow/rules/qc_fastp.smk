@@ -47,7 +47,9 @@ rule fastp_sample_level:
         html_step1=f"{OUTDIR}/qc/fastp/{{sample}}/merged_step1.html",
         json_step1=f"{OUTDIR}/qc/fastp/{{sample}}/merged_step1.json",
         html_step2=f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.html",
-        json_step2=f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.json"
+        json_step2=f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.json",
+        step1_r1=temp(f"{OUTDIR}/tmp/fastp_sample/{{sample}}.step1_R1.fastq.gz"),
+        step1_r2=temp(f"{OUTDIR}/tmp/fastp_sample/{{sample}}.step1_R2.fastq.gz")
     log:
         f"logs/fastp/{{sample}}.log"
     threads: int(config["threads"]["fastp"])
@@ -65,8 +67,8 @@ rule fastp_sample_level:
         set -euo pipefail
         mkdir -p $(dirname {output.clean_r1}) $(dirname {output.html_step1}) $(dirname {log})
 
-        TMP_R1={OUTDIR}/tmp/fastp_sample/{wildcards.sample}.step1_R1.fastq.gz
-        TMP_R2={OUTDIR}/tmp/fastp_sample/{wildcards.sample}.step1_R2.fastq.gz
+        TMP_R1={output.step1_r1:q}
+        TMP_R2={output.step1_r2:q}
 
         # Step 1: QC + Illumina adapter trimming + dedup
         fastp \

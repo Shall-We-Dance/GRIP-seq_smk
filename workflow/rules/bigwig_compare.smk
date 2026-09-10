@@ -11,6 +11,8 @@ BWC_GROUPS = BWC_CFG.get("groups", {})
 
 
 def bigwig_compare_targets():
+    if not BWC_ENABLED:
+        return []
     return [
         f"{OUTDIR}/bigwig/compare/{group}.{track}.{BWC_OPERATION}.bw"
         for group in BWC_GROUPS

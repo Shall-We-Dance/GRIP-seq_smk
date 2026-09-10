@@ -1,0 +1,8 @@
+name: gripseq-workflow
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.11
+  - snakemake=9.3.3
+  - pyyaml=6.0.2

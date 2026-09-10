@@ -1,0 +1,6 @@
+name: gripseq_motif
+channels: [conda-forge, bioconda]
+dependencies:
+  - python=3.11
+  - meme=5.5.7
+  - ghostscript

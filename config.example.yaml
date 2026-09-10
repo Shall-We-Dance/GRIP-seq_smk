@@ -1,6 +1,5 @@
-# workflow config.yaml
-# GRIP-seq Snakemake pipeline configuration
-# Replace all paths and sample names below with your own.
+# Copy this template to config.yaml and edit it for your experiment.
+# config.yaml is local and ignored by Git.
 
 genome: hg38   # genome label for reporting/logging
 
@@ -12,9 +11,9 @@ threads:
 
 # Reference & index (STAR)
 reference:
-  star_index: "/path/to/STAR/index"             # directory produced by STAR --runMode genomeGenerate
-  fasta: "/path/to/genome.fa"                   # used for .fai (chrom sizes)
-  gtf: "/path/to/genes.gtf"                     # optional, can be "" if not used
+  star_index: "resources/reference/STAR_index"
+  fasta: "resources/reference/genome.fa"
+  gtf: "resources/reference/genes.gtf"  # required when metaplot is enabled
 
 # Enable blacklist filtering (requires blacklist.path or blacklist.url)
 filter_blacklist: true
@@ -30,37 +29,13 @@ blacklist:
   url: "https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/hg38-blacklist.v2.bed.gz"
 
 # Samples: multiple technical replicates (or lanes) under one sample
-# Raw FASTQ paths are local; adjust per your data layout.
 samples:
-  sampleA_IP_1:
-    R1:
-      - "/path/to/raw/sampleA_IP_1_L1_R1.fastq.gz"
-    R2:
-      - "/path/to/raw/sampleA_IP_1_L1_R2.fastq.gz"
-
-  sampleA_IP_2:
-    R1:
-      - "/path/to/raw/sampleA_IP_2_L1_R1.fastq.gz"
-    R2:
-      - "/path/to/raw/sampleA_IP_2_L1_R2.fastq.gz"
-
-  sampleA_Input_1:
-    R1:
-      - "/path/to/raw/sampleA_Input_1_L1_R1.fastq.gz"
-    R2:
-      - "/path/to/raw/sampleA_Input_1_L1_R2.fastq.gz"
-
-  sampleB_IP_1:
-    R1:
-      - "/path/to/raw/sampleB_IP_1_L1_R1.fastq.gz"
-    R2:
-      - "/path/to/raw/sampleB_IP_1_L1_R2.fastq.gz"
-
-  sampleB_Input_1:
-    R1:
-      - "/path/to/raw/sampleB_Input_1_L1_R1.fastq.gz"
-    R2:
-      - "/path/to/raw/sampleB_Input_1_L1_R2.fastq.gz"
+  example_IP_1:
+    R1: ["data/example_IP_1_R1.fq.gz"]
+    R2: ["data/example_IP_1_R2.fq.gz"]
+  example_Input_1:
+    R1: ["data/example_Input_1_R1.fq.gz"]
+    R2: ["data/example_Input_1_R2.fq.gz"]
 
 # fastp settings
 fastp:
@@ -69,7 +44,7 @@ fastp:
   # enable=false disables dedup entirely; dedup=true enables --dedup (used when enable=true)
   dedup_adapter:
     enable: true
-    dedup: true
+    dedup: true  # legacy sequence deduplication; NOT UMI-aware (see README)
 
   # Step2: GRIP-seq custom trimming
   # enable=false makes step2 a pass-through (no fixed trims, no adapter trimming)
@@ -83,8 +58,16 @@ fastp:
 
 # STAR alignment settings
 star:
-  multimap_nmax: 1   # --outFilterMultimapNmax; 1 = unique alignment only
-  extra: ""  # optional additional args
+  # Keep only uniquely aligned fragments, including RNase-shortened inserts.
+  # STAR normally requires >=66% of the total paired-read length to align; that
+  # rejects a short informative insert when the other mate is mostly clipped.
+  multimap_nmax: 1
+  min_match_bases: 20
+  min_score_fraction: 0.0
+  min_match_fraction: 0.0
+  max_mismatch_fraction: 0.10
+  max_mismatches: 10
+  extra: ""  # optional additional STAR arguments
 
 # Filtering
 filtering:
@@ -105,17 +88,9 @@ bigwigCompare:
 
   # groups: comparison name -> IP / Input sample lists (all must exist in config.samples)
   groups:
-    sampleA_log2_IP_over_Input:
-      IP:
-        - sampleA_IP_1
-        - sampleA_IP_2
-      Input:
-        - sampleA_Input_1
-    sampleB_log2_IP_over_Input:
-      IP:
-        - sampleB_IP_1
-      Input:
-        - sampleB_Input_1
+    example_log2_IP_over_Input:
+      IP: [example_IP_1]
+      Input: [example_Input_1]
 
 # Motif anchoring of R2-first-base 1-nt sites (output: results/motif/<sample>/<sample>.anchored.bed)
 # Site definition: Read2 is cDNA (reverse complement of RNA), so the cross-link/m6A site is
@@ -131,6 +106,36 @@ motif_anchoring:
   site_shift: 1           # nt upstream of R2 5' base to the cross-link site (fwd +1 / rev -1)
   search_window: 0        # 0 = exact motif required; >0 = search nearest match within +/-N bp
   keep_unmatched: false   # keep sites with no motif (motif col "NA") instead of dropping
+
+# De novo motif discovery around strand-aware RT-termination sites. This is
+# independent from motif_anchoring above and follows the Nature Chemistry
+# analysis: >40 Read2 starts and >=1.5-fold over both adjacent positions,
+# followed by MEME on +/-10 nt around the R2 start in RNA 5'->3' orientation.
+de_novo_motif:
+  enable: true
+  samples: all             # default: all samples in config.samples
+  min_reads: 40
+  neighbor_fold: 1.5
+  sequence_flank: 10
+  min_sequences: 10
+  nmotifs: 5
+  min_width: 4
+  max_width: 8
+
+# Strand-aware metagene profiles from the supplied GTF. Each sample receives
+# one figure containing aligned-read BAM CPM and nucleotide-resolution Read2
+# first-base CPM; an additional figure combines every sample.
+metaplot:
+  enable: true
+  samples: all
+  tracks:
+    - bamCPM.noblacklist
+    - R2firstbaseCPM.noblacklist
+  upstream: 3000
+  downstream: 3000
+  gene_body_length: 5000
+  bin_size: 50
+  plot_format: pdf
 
 # Output naming
 output:

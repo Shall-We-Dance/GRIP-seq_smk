@@ -87,6 +87,38 @@ def validate_workflow_config():
         if int(mc.get("search_window", 0)) < 0:
             raise ValueError("motif_anchoring.search_window must be >= 0.")
 
+    dmc = config.get("de_novo_motif", {})
+    if dmc.get("enable", False):
+        motif_samples = dmc.get("samples", "all")
+        motif_samples = SAMPLES if motif_samples == "all" else motif_samples
+        unknown = sorted(set(motif_samples) - set(SAMPLES))
+        if unknown:
+            raise ValueError(f"de_novo_motif.samples contains unknown samples: {unknown}")
+        if int(dmc.get("min_reads", 40)) < 1:
+            raise ValueError("de_novo_motif.min_reads must be >= 1.")
+        if float(dmc.get("neighbor_fold", 1.5)) <= 1:
+            raise ValueError("de_novo_motif.neighbor_fold must be > 1.")
+
+    metaplot = config.get("metaplot", {})
+    if metaplot.get("enable", False):
+        if not config.get("reference", {}).get("gtf"):
+            raise ValueError("metaplot is enabled but reference.gtf is empty.")
+        metaplot_samples = metaplot.get("samples", "all")
+        metaplot_samples = SAMPLES if metaplot_samples == "all" else metaplot_samples
+        unknown = sorted(set(metaplot_samples) - set(SAMPLES))
+        if unknown:
+            raise ValueError(f"metaplot.samples contains unknown samples: {unknown}")
+        tracks = metaplot.get("tracks", [])
+        required_tracks = {"bamCPM.noblacklist", "R2firstbaseCPM.noblacklist"}
+        if set(tracks) != required_tracks:
+            raise ValueError(
+                "metaplot.tracks must contain bamCPM.noblacklist and "
+                "R2firstbaseCPM.noblacklist."
+            )
+        for key in ("upstream", "downstream", "gene_body_length", "bin_size"):
+            if int(metaplot.get(key, 1)) < 1:
+                raise ValueError(f"metaplot.{key} must be >= 1.")
+
 rule faidx_reference:
     input:
         fa=config["reference"]["fasta"]
