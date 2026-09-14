@@ -13,8 +13,10 @@ rule star_align_unique:
         log_final_qc=f"{OUTDIR}/qc/star/{{sample}}/{{sample}}.Log.final.out",
         sj=f"{OUTDIR}/star/{{sample}}/{{sample}}.SJ.out.tab"
     log:
-        f"logs/star/{{sample}}.log"
+        f"{OUTDIR}/logs/star/{{sample}}.log"
     threads: config["threads"]["star"]
+    resources:
+        mem_mb=40000
     conda:
         "envs/star.yaml"
     params:
@@ -31,8 +33,8 @@ rule star_align_unique:
         mkdir -p $(dirname {output.bam}) $(dirname {output.log_final}) $(dirname {log})
         STAR \
           --runThreadN {threads} \
-          --genomeDir {params.index} \
-          --readFilesIn {input.r1} {input.r2} \
+          --genomeDir {params.index:q} \
+          --readFilesIn {input.r1:q} {input.r2:q} \
           --readFilesCommand zcat \
           --outFilterMultimapNmax {params.multimap_nmax} \
           --outFilterMatchNmin {params.min_match_bases} \
@@ -57,7 +59,7 @@ rule star_align_unique:
 
 rule summarize_star_mapping:
     input:
-        expand(f"{OUTDIR}/qc/star/{{sample}}/{{sample}}.Log.final.out", sample=SAMPLES)
+        expand(f"{OUTDIR}/qc/star/{{sample}}/{{sample}}.Log.final.out", sample=FASTQ_SAMPLES)
     output:
         f"{OUTDIR}/qc/star/short_read_mapping_summary.tsv"
     script:

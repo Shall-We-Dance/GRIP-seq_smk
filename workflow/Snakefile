@@ -7,15 +7,19 @@ SAMPLES = list(config["samples"].keys())
 OUTDIR = config["output"]["dir"]
 
 include: "rules/common.smk"
-include: "rules/qc_fastp.smk"
-include: "rules/align_star.smk"
+if FASTQ_SAMPLES:
+    include: "rules/qc_fastp.smk"
+    include: "rules/align_star.smk"
 include: "rules/bam_post.smk"
 include: "rules/signal_5prime.smk"
 include: "rules/tracks.smk"
 include: "rules/bigwig_compare.smk"
 include: "rules/motif_anchor.smk"
 include: "rules/motif_de_novo.smk"
+include: "rules/motif_distribution.smk"
+include: "rules/motif_summary.smk"
 include: "rules/metaplot.smk"
+include: "rules/quality_report.smk"
 
 BIGWIG_TARGETS = []
 BIGWIG_TARGETS += expand(f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.bamCPM.noblacklist.bw", sample=SAMPLES)
@@ -28,10 +32,10 @@ rule all:
     default_target: True
     input:
         # QC
-        expand(f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.html", sample=SAMPLES),
-        expand(f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.json", sample=SAMPLES),
-        f"{OUTDIR}/qc/star/short_read_mapping_summary.tsv",
-        f"{OUTDIR}/qc/multiqc/multiqc_report.html",
+        expand(f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.html", sample=FASTQ_SAMPLES),
+        expand(f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.json", sample=FASTQ_SAMPLES),
+        [f"{OUTDIR}/qc/star/short_read_mapping_summary.tsv"] if FASTQ_SAMPLES else [],
+        [f"{OUTDIR}/qc/multiqc/multiqc_report.html"] if FASTQ_SAMPLES else [],
 
         # Alignment (final BAM kept)
         expand(f"{OUTDIR}/star/{{sample}}/{{sample}}.unique.mapq11.sorted.bam", sample=SAMPLES),
@@ -39,6 +43,8 @@ rule all:
 
         # BigWig from BAM and 5' end signal; blacklist tracks are optional.
         BIGWIG_TARGETS,
+        SIGNAL_TARGETS,
+        QC_TARGETS,
 
         # Track files
         expand(f"{OUTDIR}/tracks/{{sample}}/{{sample}}.tracks.txt", sample=SAMPLES),
@@ -51,6 +57,8 @@ rule all:
 
         # Independent, strand-aware RT-termination de novo motif discovery
         DE_NOVO_MOTIF_TARGETS,
+        MOTIF_DISTRIBUTION_TARGETS,
+        MOTIF_SUMMARY_TARGETS,
 
-        # Strand-aware TSS-TES metaplots for both signal types
+        # Exon-aware, strand-oriented 5UTR/CDS/3UTR metaplots
         METAPLOT_TARGETS,

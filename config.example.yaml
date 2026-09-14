@@ -29,6 +29,8 @@ blacklist:
   url: "https://raw.githubusercontent.com/Boyle-Lab/Blacklist/master/lists/hg38-blacklist.v2.bed.gz"
 
 # Samples: multiple technical replicates (or lanes) under one sample
+# Alternatively use bam: "data/sample.bam" alone to reanalyze existing alignments.
+# BAM mode re-filters/sorts/indexes; FASTQ/STAR QC is not regenerated.
 samples:
   example_IP_1:
     R1: ["data/example_IP_1_R1.fq.gz"]
@@ -85,6 +87,7 @@ bigwigCompare:
   tracks:
     - R2firstbaseCPM.noblacklist
     - bamCPM.noblacklist
+    - crosslinkCPM.noblacklist
 
   # groups: comparison name -> IP / Input sample lists (all must exist in config.samples)
   groups:
@@ -92,50 +95,78 @@ bigwigCompare:
       IP: [example_IP_1]
       Input: [example_Input_1]
 
-# Motif anchoring of R2-first-base 1-nt sites (output: results/motif/<sample>/<sample>.anchored.bed)
-# Site definition: Read2 is cDNA (reverse complement of RNA), so the cross-link/m6A site is
-#   upstream of the R2 5' base along the RNA: genomic +site_shift for '+' R2 reads,
-#   -site_shift for '-' R2 reads. Per GECX-RNA: m6A = 1 nt upstream of R2 start => site_shift: 1.
-# Motif anchoring (optional): the site must coincide with motif position `motif_pos` of `motif`
-#   (matched on the RNA strand; for m6A: DRACH, 3rd base A). search_window>0 corrects to the
-#   nearest DRACH within +/-window bp instead of requiring an exact match.
-motif_anchoring:
-  enable: true
-  motif: DRACH            # IUPAC motif on the RNA strand
-  motif_pos: 3            # 1-based position of the modification base within the motif (m6A = 3)
-  site_shift: 1           # nt upstream of R2 5' base to the cross-link site (fwd +1 / rev -1)
-  search_window: 0        # 0 = exact motif required; >0 = search nearest match within +/-N bp
-  keep_unmatched: false   # keep sites with no motif (motif col "NA") instead of dropping
+# Precise endpoints: R2 is opposite the RNA strand in this library protocol.
+# "aligned" is a sensitivity mode retaining uncertain clipped 5-prime ends.
+signal:
+  five_prime_clip: exclude
+  crosslink_shift: 1      # RNA bases upstream; skip CIGAR introns
+  require_proper_pair: false
+  exclude_duplicates: false  # no second coordinate dedup after fastp
+  exclude_qcfail: true
 
-# De novo motif discovery around strand-aware RT-termination sites. This is
-# independent from motif_anchoring above and follows the Nature Chemistry
-# analysis: >40 Read2 starts and >=1.5-fold over both adjacent positions,
-# followed by MEME on +/-10 nt around the R2 start in RNA 5'->3' orientation.
+# Optional motif-conditioned diagnostic; never a discovery input or m6A call.
+motif_anchoring:
+  enable: false
+  motif: DRACH
+  motif_pos: 3
+  search_window: 0
+  keep_unmatched: false
+
+# Sequence-unbiased RT local maxima. This is not CLIPper cluster calling.
+# MEME discovery and held-out offset analysis use disjoint, deterministic loci.
 de_novo_motif:
   enable: true
-  samples: all             # default: all samples in config.samples
-  min_reads: 40
+  samples: all
+  variant: auto  # blacklist when enabled; otherwise noblacklist
+  min_reads: 40          # strictly greater than 40
   neighbor_fold: 1.5
   sequence_flank: 10
+  sequence_center: r2_start
   min_sequences: 10
+  max_sequences: 2000
+  holdout_fraction: 0.2
+  holdout_block_size: 10000
+  holdout_guard: 100
+  seed: 17
+  threads: 4
   nmotifs: 5
   min_width: 4
   max_width: 8
 
-# Strand-aware metagene profiles from the supplied GTF. Each sample receives
-# one figure containing aligned-read BAM CPM and nucleotide-resolution Read2
-# first-base CPM; an additional figure combines every sample.
+# Relative positions are signed along RNA 5-prime -> 3-prime.
+# Background uses nearby shifted genomic windows, not expression/GC matching.
+motif_distribution:
+  enable: true
+  samples: all
+  window: 50
+  motifs:
+    - name: DRACH
+      sequence: DRACH
+      anchor_pos: 3
+  scan_de_novo: true
+  consensus_probability_mass: 0.8
+  background_min_distance: 200
+  background_max_distance: 1000
+  background_attempts: 20
+
+# Spliced 5UTR/CDS/3UTR: independently rescale each region, then display widths
+# proportional to median region length/CDS length (the published metaPlotR style).
 metaplot:
   enable: true
   samples: all
   tracks:
     - bamCPM.noblacklist
     - R2firstbaseCPM.noblacklist
-  upstream: 3000
-  downstream: 3000
-  gene_body_length: 5000
-  bin_size: 50
+    - crosslinkCPM.noblacklist
+  bins: {utr5: 100, cds: 100, utr3: 100}
+  axis_scale: median_length
+  axis_widths: [1, 1, 1]   # used only with axis_scale: fixed
+  min_region_length: 1
   plot_format: pdf
+
+quality:
+  min_usable_r2: 100000
+  max_five_prime_clip_fraction: 0.2
 
 # Output naming
 output:

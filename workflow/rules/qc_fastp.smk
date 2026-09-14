@@ -27,8 +27,8 @@ rule merge_raw_fastq_per_sample:
         r"""
         set -euo pipefail
         mkdir -p $(dirname {output.merged_r1})
-        cat {input.r1} > {output.merged_r1}
-        cat {input.r2} > {output.merged_r2}
+        cat {input.r1:q} > {output.merged_r1}
+        cat {input.r2:q} > {output.merged_r2}
         """
 
 
@@ -51,8 +51,10 @@ rule fastp_sample_level:
         step1_r1=temp(f"{OUTDIR}/tmp/fastp_sample/{{sample}}.step1_R1.fastq.gz"),
         step1_r2=temp(f"{OUTDIR}/tmp/fastp_sample/{{sample}}.step1_R2.fastq.gz")
     log:
-        f"logs/fastp/{{sample}}.log"
+        f"{OUTDIR}/logs/fastp/{{sample}}.log"
     threads: int(config["threads"]["fastp"])
+    resources:
+        mem_mb=6000
     conda:
         "envs/qc.yaml"
     params:
@@ -72,8 +74,8 @@ rule fastp_sample_level:
 
         # Step 1: QC + Illumina adapter trimming + dedup
         fastp \
-          -i {input.r1} -I {input.r2} \
-          -o $TMP_R1 -O $TMP_R2 \
+          -i {input.r1:q} -I {input.r2:q} \
+          -o "$TMP_R1" -O "$TMP_R2" \
           --thread {threads} \
           {params.dedup_arg} \
           --html {output.html_step1} --json {output.json_step1} \
@@ -81,7 +83,7 @@ rule fastp_sample_level:
 
         # Step 2: GRIP-seq custom trimming (disable adapter trimming + fixed trims)
         fastp \
-          -i $TMP_R1 -I $TMP_R2 \
+          -i "$TMP_R1" -I "$TMP_R2" \
           -o {output.clean_r1} -O {output.clean_r2} \
           --thread {threads} \
           {params.disable_adapter_arg} \
@@ -97,12 +99,12 @@ rule fastp_sample_level:
 # ----------------------------
 rule multiqc:
     input:
-        expand(f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.html", sample=list(config["samples"].keys())),
-        expand(f"{OUTDIR}/qc/star/{{sample}}/{{sample}}.Log.final.out", sample=list(config["samples"].keys()))
+        expand(f"{OUTDIR}/qc/fastp/{{sample}}/merged_fastp_final.html", sample=FASTQ_SAMPLES),
+        expand(f"{OUTDIR}/qc/star/{{sample}}/{{sample}}.Log.final.out", sample=FASTQ_SAMPLES)
     output:
         html=f"{OUTDIR}/qc/multiqc/multiqc_report.html"
     log:
-        "logs/multiqc.log"
+        f"{OUTDIR}/logs/multiqc.log"
     conda:
         "envs/multiqc.yaml"
     shell:
