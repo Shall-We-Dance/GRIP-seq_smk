@@ -1,0 +1,5 @@
+name: cutadapt
+channels: [conda-forge, bioconda]
+dependencies:
+  - python=3.11
+  - cutadapt=5.2

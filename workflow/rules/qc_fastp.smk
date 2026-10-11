@@ -1,5 +1,6 @@
 # workflow/rules/qc_fastp.smk
 import os
+import shlex
 
 OUTDIR = config["output"]["dir"]
 
@@ -9,6 +10,7 @@ def units(sample):
 
 DEDUP_CFG = config.get("fastp", {}).get("dedup_adapter", {})
 GRIP_CFG = config.get("fastp", {}).get("grip_trim", {})
+KEEP_MERGED_FASTQ = bool(config.get("preprocessing", {}).get("keep_merged_fastq", False))
 GRIP_ENABLED = bool(GRIP_CFG.get("enable", True))
 
 
@@ -20,8 +22,8 @@ rule merge_raw_fastq_per_sample:
         r1=lambda wc: [config["samples"][wc.sample]["R1"][i] for i in units(wc.sample)],
         r2=lambda wc: [config["samples"][wc.sample]["R2"][i] for i in units(wc.sample)]
     output:
-        merged_r1=temp(f"{OUTDIR}/tmp/merged_raw/{{sample}}_R1.fastq.gz"),
-        merged_r2=temp(f"{OUTDIR}/tmp/merged_raw/{{sample}}_R2.fastq.gz")
+        merged_r1=(f"{OUTDIR}/raw_merged/{{sample}}_R1.fastq.gz" if KEEP_MERGED_FASTQ else temp(f"{OUTDIR}/raw_merged/{{sample}}_R1.fastq.gz")),
+        merged_r2=(f"{OUTDIR}/raw_merged/{{sample}}_R2.fastq.gz" if KEEP_MERGED_FASTQ else temp(f"{OUTDIR}/raw_merged/{{sample}}_R2.fastq.gz"))
     threads: 2
     shell:
         r"""
@@ -39,8 +41,8 @@ rule merge_raw_fastq_per_sample:
 # ----------------------------
 rule fastp_sample_level:
     input:
-        r1=f"{OUTDIR}/tmp/merged_raw/{{sample}}_R1.fastq.gz",
-        r2=f"{OUTDIR}/tmp/merged_raw/{{sample}}_R2.fastq.gz"
+        r1=f"{OUTDIR}/raw_merged/{{sample}}_R1.fastq.gz",
+        r2=f"{OUTDIR}/raw_merged/{{sample}}_R2.fastq.gz"
     output:
         clean_r1=temp(f"{OUTDIR}/tmp/fastp_sample/{{sample}}_R1.fastq.gz"),
         clean_r2=temp(f"{OUTDIR}/tmp/fastp_sample/{{sample}}_R2.fastq.gz"),
@@ -58,6 +60,8 @@ rule fastp_sample_level:
     conda:
         "envs/qc.yaml"
     params:
+        adapter_args=" ".join("--" + key + " " + shlex.quote(str(DEDUP_CFG[key])) for key in ("adapter_sequence", "adapter_sequence_r2") if DEDUP_CFG.get(key)),
+        min_length=int(GRIP_CFG.get("length_required", 15)),
         dedup_arg=("--dedup" if (bool(DEDUP_CFG.get("enable", True)) and bool(DEDUP_CFG.get("dedup", True))) else ""),
         disable_adapter_arg=("--disable_adapter_trimming" if (not GRIP_ENABLED or bool(GRIP_CFG.get("disable_adapter_trimming", True))) else ""),
         trim_f=int(GRIP_CFG.get("trim_front_r1", 12)) if GRIP_ENABLED else 0,
@@ -77,7 +81,7 @@ rule fastp_sample_level:
           -i {input.r1:q} -I {input.r2:q} \
           -o "$TMP_R1" -O "$TMP_R2" \
           --thread {threads} \
-          {params.dedup_arg} \
+          {params.dedup_arg} {params.adapter_args} \
           --html {output.html_step1} --json {output.json_step1} \
           > {log} 2>&1
 
@@ -86,7 +90,7 @@ rule fastp_sample_level:
           -i "$TMP_R1" -I "$TMP_R2" \
           -o {output.clean_r1} -O {output.clean_r2} \
           --thread {threads} \
-          {params.disable_adapter_arg} \
+          {params.disable_adapter_arg} --length_required {params.min_length} \
           -f {params.trim_f} -t {params.trim_t} \
           -F {params.trim_F} -T {params.trim_T} \
           --html {output.html_step2} --json {output.json_step2} \

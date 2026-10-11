@@ -27,3 +27,31 @@ logs/
 
 # Downloaded resources cache
 resources/blacklist/
+
+# Private experiment settings and data (publish config.example.yaml instead)
+/config.yaml
+/config.*.local.yaml
+/data/
+/01.RawData/
+/resources/reference/
+*.fastq
+*.fastq.gz
+*.fq
+*.fq.gz
+*.bam
+*.bai
+*.cram
+*.crai
+*.bw
+*.bigWig
+
+# Local agent metadata and release artifacts
+.agents/
+.codex/
+dist/
+.pytest_cache/
+
+# Versioned local reanalyses and audit reports
+/results*/
+/diagnostics/
+/release*/

@@ -162,6 +162,21 @@ def validate_workflow_config():
             raise ValueError("metaplot.min_region_length must be positive")
 
     signal = config.get("signal", {})
+    cleanup = config.get("adapter_cleanup", {})
+    if cleanup.get("enable", False):
+        for key in ("adapter_r1", "adapter_r2", "exact_common_prefix"):
+            sequence = cleanup.get(key, "")
+            if not isinstance(sequence, str) or not sequence or set(sequence)-set("ACGT"):
+                raise ValueError(f"adapter_cleanup.{key} must be a nonempty uppercase DNA sequence")
+        for key, default in (("rounds", 2), ("minimum_overlap", 8), ("minimum_length", 20)):
+            if int(cleanup.get(key, default)) < 1:
+                raise ValueError(f"adapter_cleanup.{key} must be positive")
+        if not 0 <= float(cleanup.get("error_rate", 0.1)) < 1:
+            raise ValueError("adapter_cleanup.error_rate must be in [0,1)")
+    if int(signal.get("min_aligned_bases", 0)) < 0:
+        raise ValueError("signal.min_aligned_bases must be nonnegative")
+    if signal.get("rna_strand", "same_as_read2") not in ("same_as_read2", "opposite_read2"):
+        raise ValueError("signal.rna_strand must be same_as_read2 or opposite_read2")
     if signal.get("five_prime_clip", "exclude") not in ("exclude", "aligned"):
         raise ValueError("signal.five_prime_clip must be exclude or aligned")
     if int(signal.get("crosslink_shift", 1)) < 0:

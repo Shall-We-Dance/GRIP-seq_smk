@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 
@@ -49,7 +50,8 @@ def create_coverage(sm):
                        'copy_policy': 'independent bytes; no symlink or hardlink'}, log, indent=2)
             log.write('\n')
             return
-        command = ['bamCoverage', '-b', str(sm.input.bam), '-o', str(destination),
+        command = [sys.executable, str(sm.input.writer)] if sm.input.get('writer') else ['bamCoverage']
+        command += ['-b', str(sm.input.bam), '-o', str(destination),
                    '--binSize', '1', '--normalizeUsing', 'CPM',
                    '--numberOfProcessors', str(sm.threads)]
         if sm.input.get('bl'):
