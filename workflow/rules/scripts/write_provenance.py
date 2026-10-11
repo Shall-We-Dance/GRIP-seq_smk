@@ -41,7 +41,7 @@ for meta in sorted((root/'.snakemake/conda').glob('*_/conda-meta')):
         package=json.loads(record.read_text())
         packages.append({key:package.get(key) for key in ('name','version','build')})
     environments[meta.parent.name]=packages
-obj={'schema_version':1,'workflow_version':'2.0.0','created_utc':datetime.now(timezone.utc).isoformat(),
+obj={'schema_version':1,'workflow_version':'2.1.0','created_utc':datetime.now(timezone.utc).isoformat(),
      'python':platform.python_version(),'reference_inputs':reference_inputs,'installed_rule_environments':environments,'config':dict(snakemake.config),'inputs':inputs,'imported_coverage':coverage_inputs,'code_sha256':code,
      'coordinate_system':'0-based half-open; endpoint and inferred crosslink are distinct; all site BED strands denote RNA',
      'reanalysis_note':snakemake.config.get('provenance',{})}

@@ -28,7 +28,8 @@ rule bam_to_bigwig_cpm_noblacklist:
     input:
         bam=f"{OUTDIR}/star/{{sample}}/{{sample}}.unique.mapq11.sorted.bam",
         bai=f"{OUTDIR}/star/{{sample}}/{{sample}}.unique.mapq11.sorted.bam.bai",
-        reuse=lambda wc: coverage_reuse_input(wc.sample, "noblacklist")
+        reuse=lambda wc: coverage_reuse_input(wc.sample, "noblacklist"),
+        writer=workflow.source_path("scripts/fast_bam_coverage.py")
     output:
         bw=f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.bamCPM.noblacklist.bw"
     log:
@@ -45,7 +46,8 @@ if FILTER_BLACKLIST:
             bam=f"{OUTDIR}/star/{{sample}}/{{sample}}.unique.mapq11.sorted.bam",
             bai=f"{OUTDIR}/star/{{sample}}/{{sample}}.unique.mapq11.sorted.bam.bai",
             bl=blacklist_path(),
-            reuse=lambda wc: coverage_reuse_input(wc.sample, "blacklist")
+            reuse=lambda wc: coverage_reuse_input(wc.sample, "blacklist"),
+            writer=workflow.source_path("scripts/fast_bam_coverage.py")
         output:
             bw=f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.bamCPM.blacklist.bw"
         log:
@@ -91,9 +93,11 @@ rule r2_first_base_signal:
     resources:
         mem_mb=2048
     params:
+        min_aligned_bases=int(SIGNAL_CFG.get("min_aligned_bases", 0)),
         min_mapq=int(config["filtering"]["min_mapq"]),
         five_prime_clip=str(SIGNAL_CFG.get("five_prime_clip", "exclude")),
         crosslink_shift=int(SIGNAL_CFG.get("crosslink_shift", 1)),
+        rna_strand=str(SIGNAL_CFG.get("rna_strand", "same_as_read2")),
         require_proper_pair=bool(SIGNAL_CFG.get("require_proper_pair", False)),
         exclude_duplicates=bool(SIGNAL_CFG.get("exclude_duplicates", False)),
         exclude_qcfail=bool(SIGNAL_CFG.get("exclude_qcfail", True))

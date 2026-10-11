@@ -9,6 +9,8 @@ OUTDIR = config["output"]["dir"]
 include: "rules/common.smk"
 if FASTQ_SAMPLES:
     include: "rules/qc_fastp.smk"
+    if config.get("adapter_cleanup", {}).get("enable", False):
+        include: "rules/adapter_cleanup.smk"
     include: "rules/align_star.smk"
 include: "rules/bam_post.smk"
 include: "rules/signal_5prime.smk"
@@ -20,6 +22,7 @@ include: "rules/motif_distribution.smk"
 include: "rules/motif_summary.smk"
 include: "rules/metaplot.smk"
 include: "rules/quality_report.smk"
+include: "rules/m6a.smk"
 
 BIGWIG_TARGETS = []
 BIGWIG_TARGETS += expand(f"{OUTDIR}/bigwig/{{sample}}/{{sample}}.bamCPM.noblacklist.bw", sample=SAMPLES)
@@ -62,3 +65,4 @@ rule all:
 
         # Exon-aware, strand-oriented 5UTR/CDS/3UTR metaplots
         METAPLOT_TARGETS,
+        M6A_TARGETS,

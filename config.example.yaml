@@ -46,6 +46,8 @@ fastp:
   # enable=false disables dedup entirely; dedup=true enables --dedup (used when enable=true)
   dedup_adapter:
     enable: true
+    adapter_sequence: AGATCGGAAGAGCACACGTCTGAACTCCAGTCA
+    adapter_sequence_r2: AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT
     dedup: true  # legacy sequence deduplication; NOT UMI-aware (see README)
 
   # Step2: GRIP-seq custom trimming
@@ -53,10 +55,26 @@ fastp:
   grip_trim:
     enable: true
     disable_adapter_trimming: true   # -A
+    length_required: 20
     trim_front_r1: 12                # -f
     trim_tail_r1: 10                 # -t
     trim_front_r2: 10                # -F
     trim_tail_r2: 12                 # -T
+
+# Retain concatenated raw files when needed for auditing; false saves disk space.
+preprocessing:
+  keep_merged_fastq: false
+
+# Independent cleanup after fixed GRIP trimming. No local executable paths.
+adapter_cleanup:
+  enable: true
+  adapter_r1: AGATCGGAAGAGCACACGTCTGAACTCCAGTCA
+  adapter_r2: AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT
+  exact_common_prefix: AGATCGGAAGAGC
+  rounds: 2
+  error_rate: 0.1
+  minimum_overlap: 8
+  minimum_length: 20
 
 # STAR alignment settings
 star:
@@ -75,14 +93,14 @@ star:
 filtering:
   min_mapq: 11   # MAPQ > 10
 
-# bigwigCompare: log2(IP/Input) tracks per group (deepTools bigwigCompare)
+# IP/Input tracks: exact sparse arithmetic for supported 1-bp operations; deepTools fallback
 # Per-sample BigWigs within each group side are averaged (pooled) first,
 # then log2(IP/Input) is computed. Output: results/bigwig/compare/<group>.<track>.<operation>.bw
 bigwigCompare:
   enable: true
   operation: log2          # --operation: log2 / ratio / subtract ...
   pseudocount: 1           # --pseudocount (added before log2 to avoid log(0))
-  binSize: 1               # --binSize; NOTE: 1bp is slow (~1.5h per track on hg38), 10/25 is much faster
+  binSize: 1               # single-base signal; larger bins use deepTools
   # Per-sample tracks to compare (must match names in results/bigwig/<sample>/)
   tracks:
     - R2firstbaseCPM.noblacklist
@@ -98,6 +116,7 @@ bigwigCompare:
 # Precise endpoints: R2 is opposite the RNA strand in this library protocol.
 # "aligned" is a sensitivity mode retaining uncertain clipped 5-prime ends.
 signal:
+  min_aligned_bases: 20
   five_prime_clip: exclude
   crosslink_shift: 1      # RNA bases upstream; skip CIGAR introns
   require_proper_pair: false
@@ -150,7 +169,7 @@ motif_distribution:
   background_attempts: 20
 
 # Spliced 5UTR/CDS/3UTR: independently rescale each region, then display widths
-# proportional to median region length/CDS length (the published metaPlotR style).
+# of 1:1:1. The optional median_length axis reproduces the metaPlotR display style.
 metaplot:
   enable: true
   samples: all
@@ -159,7 +178,7 @@ metaplot:
     - R2firstbaseCPM.noblacklist
     - crosslinkCPM.noblacklist
   bins: {utr5: 100, cds: 100, utr3: 100}
-  axis_scale: median_length
+  axis_scale: fixed
   axis_widths: [1, 1, 1]   # used only with axis_scale: fixed
   min_region_length: 1
   plot_format: pdf
@@ -167,6 +186,26 @@ metaplot:
 quality:
   min_usable_r2: 100000
   max_five_prime_clip_fraction: 0.2
+
+# Optional custom analysis, independent of MEME and motif-discovery thresholds.
+# These are inferred motif-supported candidates, not chemically confirmed m6A.
+m6a:
+  enable: false
+  controls: {example_IP_1: example_Input_1}
+  groups: {example_condition: [example_IP_1]}
+  variant: auto
+  min_reads: 10                 # strictly greater than 10; also compare 20/40
+  neighbor_fold: 1.5
+  min_input_fold: 2.0           # effect size, not a p value or FDR
+  pseudocount: 0.5              # added to counts BEFORE depth normalization
+  adenosine_offset: 3           # downstream of inferred crosslink in RNA direction
+  require_DRACH: true
+  offset_window: 25             # unselected-RT DRACH positional diagnostic
+  min_library_support: 2       # insufficient libraries -> not estimable, not zero
+  exclude_samples: []           # optional explicit QC exclusions for group sets
+  metagene_bins: 30             # per region; site-density integral = 1
+  atlas_bed: null               # optional native-assembly BED6, one RNA-strand A/base
+  atlas_label: m6A-Atlas        # set the release, assembly and snapshot in your run
 
 # Output naming
 output:

@@ -2,11 +2,12 @@
 import os
 
 OUTDIR = config["output"]["dir"]
+ALIGN_FASTQ_DIR = "adapter_clean" if config.get("adapter_cleanup", {}).get("enable", False) else "fastp_sample"
 
 rule star_align_unique:
     input:
-        r1=f"{OUTDIR}/tmp/fastp_sample/{{sample}}_R1.fastq.gz",
-        r2=f"{OUTDIR}/tmp/fastp_sample/{{sample}}_R2.fastq.gz"
+        r1=f"{OUTDIR}/tmp/{ALIGN_FASTQ_DIR}/{{sample}}_R1.fastq.gz",
+        r2=f"{OUTDIR}/tmp/{ALIGN_FASTQ_DIR}/{{sample}}_R2.fastq.gz"
     output:
         bam=temp(f"{OUTDIR}/tmp/star/{{sample}}/{{sample}}.Aligned.sortedByCoord.out.bam"),
         log_final=f"{OUTDIR}/star/{{sample}}/{{sample}}.Log.final.out",

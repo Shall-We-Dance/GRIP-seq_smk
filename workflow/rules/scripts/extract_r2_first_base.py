@@ -1,6 +1,6 @@
-"""Count unbiased Read-2 endpoints and CIGAR-aware inferred cross-link sites.
+"""Count unbiased Read-2 endpoints and inferred cross-link sites.
 
-BED6 strand is the RNA strand (opposite Read 2 in this GRIP library).
+BED6 strand is RNA: same as Read 2 by default for the published GRIP library.
 A cross-link is inferred one nucleotide upstream of an endpoint in RNA space;
 this is not a motif-conditioned or confirmed modification coordinate. Five-prime
 unaligned sequence is excluded by default because its RT boundary is unknown.
@@ -65,17 +65,22 @@ def load_blacklist(path):
     return contains
 
 
-def endpoint_and_crosslink(read, shift=1):
+def endpoint_and_crosslink(read, shift=1, rna_strand="same_as_read2"):
     """Return first aligned query base, inferred RNA-upstream site and flags.
 
     Walk from the sequencing 5-prime end. Terminal D/N are not query bases.
-    For this opposite-strand library RNA-upstream advances into the R2 CIGAR.
+    In same_as_read2 mode, RNA-upstream lies outside the aligned R2 5-prime
+    boundary and uses a genomic displacement; an unseen upstream splice junction
+    cannot be reconstructed from this read. In explicit opposite_read2 mode,
+    RNA-upstream advances into the observed R2 CIGAR.
     N is an intron and consumes no transcript bases; D consumes a reference
     transcript base. Soft/hard clips and insertions before the first aligned
     base are reported explicitly, never silently extrapolated onto the genome.
     """
     if shift < 0:
         raise ValueError("crosslink_shift must be nonnegative")
+    if rna_strand not in ("same_as_read2", "opposite_read2"):
+        raise ValueError("rna_strand must be same_as_read2 or opposite_read2")
     cigar = read.cigartuples or []
     direction = -1 if read.is_reverse else 1
     cursor = read.reference_end - 1 if read.is_reverse and read.reference_end is not None else read.reference_start
@@ -88,6 +93,8 @@ def endpoint_and_crosslink(read, shift=1):
         if endpoint is None:
             if op in MATCH:
                 endpoint = cursor
+                if rna_strand == "same_as_read2":
+                    return endpoint, endpoint - direction * shift, flags
             elif op in (4, 5, 1):
                 flags.add({4: "softclip", 5: "hardclip", 1: "insertion"}[op])
             elif op in (2, 3):
@@ -174,6 +181,12 @@ def extract(args):
         raise ValueError("five_prime_clip must be exclude or aligned")
     if args.crosslink_shift < 0 or not 0 <= args.min_mapq <= 255:
         raise ValueError("crosslink_shift must be nonnegative and min_mapq within 0..255")
+    rna_strand = getattr(args, "rna_strand", "same_as_read2")
+    if rna_strand not in ("same_as_read2", "opposite_read2"):
+        raise ValueError("rna_strand must be same_as_read2 or opposite_read2")
+    min_aligned_bases = int(getattr(args, "min_aligned_bases", 0))
+    if min_aligned_bases < 0:
+        raise ValueError("min_aligned_bases must be nonnegative")
     chroms_fai = load_fai(args.fai)
     lengths = dict(chroms_fai)
     excluded = load_blacklist(args.blacklist_bed) if args.blacklist_bed else lambda c, p: False
@@ -227,7 +240,9 @@ def extract(args):
                 chrom = next_chrom
             else:
                 for counter in counters:
-                    counter.flush(read.reference_start)
+                    # Future forward endpoints can infer a crosslink upstream
+                    # of their alignment start. Retain this margin before emitting.
+                    counter.flush(read.reference_start - args.crosslink_shift)
             if not read.is_read2 or not read.is_paired:
                 continue
             stats["read2_total"] += 1
@@ -244,11 +259,13 @@ def extract(args):
                 reason = "improper_pair"
             elif chrom not in lengths:
                 reason = "unknown_reference"
+            elif sum(n for op, n in (read.cigartuples or []) if op in MATCH) < min_aligned_bases:
+                reason = "R2_aligned_M_EQ_X_bases_below_minimum"
             if reason:
                 stats["excluded_" + reason] += 1
                 continue
             stats["read2_pre_endpoint_filter"] += 1
-            endpoint, crosslink, flags = endpoint_and_crosslink(read, args.crosslink_shift)
+            endpoint, crosslink, flags = endpoint_and_crosslink(read, args.crosslink_shift, rna_strand)
             for flag in flags:
                 stats["five_prime_" + flag] += 1
             unaligned = bool(flags & {"softclip", "hardclip", "insertion"})
@@ -267,7 +284,9 @@ def extract(args):
             if excluded(chrom, endpoint) or excluded(chrom, crosslink):
                 stats["excluded_blacklist_endpoint_or_crosslink"] += 1
                 continue
-            strand = "+" if read.is_reverse else "-"
+            strand = "-" if read.is_reverse else "+"
+            if rna_strand == "opposite_read2":
+                strand = "+" if strand == "-" else "-"
             endpoints.add((endpoint, strand))
             crosslinks.add((crosslink, strand))
             pairs.add((endpoint, crosslink, strand))
@@ -283,8 +302,10 @@ def extract(args):
         n = stats["accepted_read2"]
         write_bigwigs(endpoint_bed, {"bw": args.out_bw, "plus": getattr(args, "out_plus", None), "minus": getattr(args, "out_minus", None)}, chroms, n)
         write_bigwigs(crosslink_bed, {"bw": getattr(args, "out_crosslink_bw", None), "plus": getattr(args, "out_crosslink_plus", None), "minus": getattr(args, "out_crosslink_minus", None)}, chroms, n)
+    stats.setdefault("accepted_read2", 0)
     result = dict(sorted(stats.items()))
-    result.update({"cpm_denominator": stats["accepted_read2"], "cpm_denominator_definition": "accepted primary mapped Read2 records after endpoint, clipping, pair, QC, MAPQ and joint endpoint/crosslink blacklist filtering; shared by both RNA strands", "rna_strand": "opposite_read2", "coordinate_system": "0-based half-open BED; 0-based TSV positions", "crosslink_shift_rna_upstream": args.crosslink_shift, "five_prime_clip_policy": args.five_prime_clip, "empty_signal": stats["accepted_read2"] == 0})
+    result["min_aligned_read2_M_EQ_X_bases"] = min_aligned_bases
+    result.update({"cpm_denominator": stats["accepted_read2"], "cpm_denominator_definition": "accepted primary mapped Read2 records after endpoint, clipping, pair, QC, MAPQ and joint endpoint/crosslink blacklist filtering; shared by both RNA strands", "rna_strand": rna_strand, "crosslink_shift_method": "genomic_upstream_of_R2_5prime" if rna_strand == "same_as_read2" else "within_R2_CIGAR_skipping_N", "coordinate_system": "0-based half-open BED; 0-based TSV positions", "crosslink_shift_rna_upstream": args.crosslink_shift, "five_prime_clip_policy": args.five_prime_clip, "empty_signal": stats["accepted_read2"] == 0})
     if getattr(args, "out_stats", None):
         with open(args.out_stats, "w") as handle:
             json.dump(result, handle, indent=2)
@@ -300,7 +321,9 @@ def parse_args():
     for name in ("out-bw", "out-bed", "out-plus", "out-minus", "out-crosslink-bw", "out-crosslink-bed", "out-crosslink-plus", "out-crosslink-minus", "out-mapping", "out-stats", "blacklist-bed"):
         parser.add_argument("--" + name)
     parser.add_argument("--sample", default="site")
+    parser.add_argument("--min-aligned-bases", type=int, default=0)
     parser.add_argument("--min-mapq", type=int, default=11)
+    parser.add_argument("--rna-strand", choices=("same_as_read2", "opposite_read2"), default="same_as_read2")
     parser.add_argument("--crosslink-shift", type=int, default=1)
     parser.add_argument("--five-prime-clip", choices=("exclude", "aligned"), default="exclude")
     parser.add_argument("--require-proper-pair", action="store_true")
@@ -314,7 +337,7 @@ def resolve_args():
         return parse_args(), None
     output_names = {"out_bw": "bw", "out_bed": "bed", "out_plus": "plus", "out_minus": "minus", "out_crosslink_bw": "crosslink_bw", "out_crosslink_bed": "crosslink_bed", "out_crosslink_plus": "crosslink_plus", "out_crosslink_minus": "crosslink_minus", "out_mapping": "mapping", "out_stats": "stats"}
     args = {key: snakemake.output.get(value) for key, value in output_names.items()}
-    args.update(bam=snakemake.input.bam, fai=snakemake.input.fai, blacklist_bed=(str(snakemake.input.bl[0]) if snakemake.input.get("bl") else None), sample=str(snakemake.wildcards.sample), min_mapq=int(snakemake.params.min_mapq), crosslink_shift=int(snakemake.params.get("crosslink_shift", 1)), five_prime_clip=str(snakemake.params.get("five_prime_clip", "exclude")), require_proper_pair=bool(snakemake.params.get("require_proper_pair", False)), exclude_duplicates=bool(snakemake.params.get("exclude_duplicates", False)), exclude_qcfail=bool(snakemake.params.get("exclude_qcfail", True)))
+    args.update(bam=snakemake.input.bam, fai=snakemake.input.fai, blacklist_bed=(str(snakemake.input.bl[0]) if snakemake.input.get("bl") else None), sample=str(snakemake.wildcards.sample), min_mapq=int(snakemake.params.min_mapq), min_aligned_bases=int(snakemake.params.get("min_aligned_bases", 0)), crosslink_shift=int(snakemake.params.get("crosslink_shift", 1)), rna_strand=str(snakemake.params.get("rna_strand", "same_as_read2")), five_prime_clip=str(snakemake.params.get("five_prime_clip", "exclude")), require_proper_pair=bool(snakemake.params.get("require_proper_pair", False)), exclude_duplicates=bool(snakemake.params.get("exclude_duplicates", False)), exclude_qcfail=bool(snakemake.params.get("exclude_qcfail", True)))
     return SimpleNamespace(**args), str(snakemake.log[0]) if snakemake.log else None
 
 
